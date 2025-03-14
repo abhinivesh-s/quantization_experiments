@@ -1,19 +1,25 @@
-# Step 8: Get cluster labels for a given threshold
-num_clusters = 10  # You can adjust this to control granularity
-clusters = sch.fcluster(linked, num_clusters, criterion="maxclust")
+# Step 3: Define a Threshold for Strong Associations
+threshold = 5  # Adjust based on dataset size
+strong_pairs = {pair for pair, count in co_occurrence_counts.items() if count >= threshold}
 
-# Step 9: Count cluster sizes
-cluster_counts = Counter(clusters)
+# Step 4: Group Classes Based on Shared Co-Occurrences
+groups = []
+visited = set()
 
-# Step 10: Filter clusters that contain 4 or fewer elements
-filtered_clusters = {c: [] for c in cluster_counts if cluster_counts[c] <= 4}
+for pair in strong_pairs:
+    if pair[0] in visited and pair[1] in visited:
+        continue  # Skip if both already assigned
 
-# Step 11: Collect class names belonging to filtered clusters
-for class_name, cluster_id in zip(class_names, clusters):
-    if cluster_id in filtered_clusters:
-        filtered_clusters[cluster_id].append(class_name)
+    group = set(pair)
+    for other_pair in strong_pairs:
+        if group & set(other_pair):  # If there's an overlap, merge
+            group.update(other_pair)
 
-# Step 12: Print filtered clusters
-print("Clusters with 4 or Fewer Classes:")
-for cluster_id, class_group in filtered_clusters.items():
-    print(f"Cluster {cluster_id}: {class_group}")
+    if not any(group <= g for g in groups):  # Avoid duplicate subsets
+        groups.append(group)
+        visited.update(group)
+
+# Step 5: Print the Grouped Classes
+print("\nClass Groups Based on Co-Occurrence:")
+for i, group in enumerate(groups, 1):
+    print(f"Group {i}: {[class_names[i] for i in group]}")

@@ -2,24 +2,14 @@
 threshold = 5  # Adjust based on dataset size
 strong_pairs = {pair for pair, count in co_occurrence_counts.items() if count >= threshold}
 
-# Step 4: Group Classes Based on Shared Co-Occurrences
-groups = []
-visited = set()
+# Step 4: Create a Graph and Add Strongly Connected Pairs
+G = nx.Graph()
+G.add_edges_from(strong_pairs)
 
-for pair in strong_pairs:
-    if pair[0] in visited and pair[1] in visited:
-        continue  # Skip if both already assigned
+# Step 5: Find Connected Components (Groups)
+groups = [list(component) for component in nx.connected_components(G)]
 
-    group = set(pair)
-    for other_pair in strong_pairs:
-        if group & set(other_pair):  # If there's an overlap, merge
-            group.update(other_pair)
-
-    if not any(group <= g for g in groups):  # Avoid duplicate subsets
-        groups.append(group)
-        visited.update(group)
-
-# Step 5: Print the Grouped Classes
+# Step 6: Print the Grouped Classes
 print("\nClass Groups Based on Co-Occurrence:")
 for i, group in enumerate(groups, 1):
     print(f"Group {i}: {[class_names[i] for i in group]}")

@@ -1,102 +1,73 @@
 import pandas as pd
 import numpy as np
 
-# Sample DataFrame with predictions, ground truth, and confidence scores
+# Simulated dataset
+np.random.seed(42)
 df = pd.DataFrame({
-    'prediction': ['A', 'B', 'A', 'C', 'B', 'C', 'A', 'B', 'C', 'A'],
-    'ground_truth': ['A', 'B', 'C', 'C', 'B', 'A', 'A', 'C', 'C', 'A'],
-    'confidence': [0.9, 0.8, 0.6, 0.7, 0.95, 0.5, 0.85, 0.4, 0.88, 0.92]
+    "prediction": np.random.choice(["A", "B", "C"], size=1000),
+    "ground_truth": np.random.choice(["A", "B", "C"], size=1000),
+    "confidence": np.random.rand(1000)
 })
 
-# Define thresholds (steps of 0.5)
+# Define thresholds and class names
 thresholds = np.arange(0, 1.05, 0.5)  # [0.0, 0.5, 1.0]
+classes = sorted(df["ground_truth"].unique())  # Extract unique class names
 
-# Get unique class labels
-classes = df['ground_truth'].unique()
+# Initialize metric storage
+accuracy_results = {cls: [] for cls in classes}
+precision_results = {cls: [] for cls in classes}
+recall_results = {cls: [] for cls in classes}
+coverage_results = {cls: [] for cls in classes}
+overall_accuracy, overall_precision, overall_recall, overall_coverage = [], [], [], []
 
-# Store results
-accuracy_results = []
-precision_results = []
-recall_results = []
-coverage_results = []
+# Compute metrics at each threshold
+for t in thresholds:
+    df_filtered = df[df["confidence"] >= t]  # Filter by confidence threshold
+    total_predictions = len(df_filtered)
 
-overall_accuracy_results = []
-overall_precision_results = []
-overall_recall_results = []
-
-for threshold in thresholds:
-    filtered_df = df[df['confidence'] >= threshold]
-
-    # Compute overall coverage
-    overall_coverage = len(filtered_df) / len(df) if len(df) > 0 else 0
-
-    # Initialize row dictionaries
-    accuracy_row = {'Class': 'Accuracy'}
-    precision_row = {'Class': 'Precision'}
-    recall_row = {'Class': 'Recall'}
-    coverage_row = {'Class': 'Coverage', 'Overall': overall_coverage}
-
-    overall_TP = 0
-    overall_FP = 0
-    overall_FN = 0
-    total_covered_samples = len(filtered_df)
-
-    # Compute metrics for each class
     for cls in classes:
-        TP = ((filtered_df['prediction'] == cls) & (filtered_df['ground_truth'] == cls)).sum()
-        FP = ((filtered_df['prediction'] == cls) & (filtered_df['ground_truth'] != cls)).sum()
-        FN = ((filtered_df['prediction'] != cls) & (filtered_df['ground_truth'] == cls)).sum()
-        total_cls_samples = (df['ground_truth'] == cls).sum()
-        covered_cls_samples = (filtered_df['ground_truth'] == cls).sum()
+        df_cls = df_filtered[df_filtered["ground_truth"] == cls]
 
-        # Compute Accuracy, Precision, Recall, Coverage
-        accuracy = TP / covered_cls_samples if covered_cls_samples > 0 else None
-        precision = TP / (TP + FP) if (TP + FP) > 0 else None
-        recall = TP / (TP + FN) if (TP + FN) > 0 else None
-        coverage = covered_cls_samples / total_cls_samples if total_cls_samples > 0 else None
+        # True Positives (TP): Correct predictions
+        TP = len(df_cls[df_cls["prediction"] == cls])
+        
+        # False Positives (FP): Incorrect predictions for this class
+        FP = len(df_filtered[(df_filtered["prediction"] == cls) & (df_filtered["ground_truth"] != cls)])
 
-        # Store class-wise metrics
-        accuracy_row[cls] = accuracy
-        precision_row[cls] = precision
-        recall_row[cls] = recall
-        coverage_row[cls] = coverage
+        # False Negatives (FN): Missed predictions
+        FN = len(df_cls[df_cls["prediction"] != cls])
 
-        # Accumulate for overall metrics
-        overall_TP += TP
-        overall_FP += FP
-        overall_FN += FN
+        # Compute metrics
+        accuracy = TP / total_predictions if total_predictions > 0 else 0
+        precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+        recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+        coverage = len(df_cls) / len(df[df["ground_truth"] == cls]) if len(df[df["ground_truth"] == cls]) > 0 else 0
 
-    # Compute overall accuracy, precision, and recall
-    overall_accuracy = overall_TP / total_covered_samples if total_covered_samples > 0 else None
-    overall_precision = overall_TP / (overall_TP + overall_FP) if (overall_TP + overall_FP) > 0 else None
-    overall_recall = overall_TP / (overall_TP + overall_FN) if (overall_TP + overall_FN) > 0 else None
+        # Store results
+        accuracy_results[cls].append(accuracy)
+        precision_results[cls].append(precision)
+        recall_results[cls].append(recall)
+        coverage_results[cls].append(coverage)
 
-    overall_accuracy_results.append({'Class': 'Overall Accuracy', threshold: overall_accuracy})
-    overall_precision_results.append({'Class': 'Overall Precision', threshold: overall_precision})
-    overall_recall_results.append({'Class': 'Overall Recall', threshold: overall_recall})
+    # Compute overall metrics (Mean across classes)
+    overall_accuracy.append(np.mean([accuracy_results[cls][-1] for cls in classes]))
+    overall_precision.append(np.mean([precision_results[cls][-1] for cls in classes]))
+    overall_recall.append(np.mean([recall_results[cls][-1] for cls in classes]))
+    overall_coverage.append(np.mean([coverage_results[cls][-1] for cls in classes]))
 
-    # Append rows to results list
-    accuracy_results.append(accuracy_row)
-    precision_results.append(precision_row)
-    recall_results.append(recall_row)
-    coverage_results.append(coverage_row)
+# Append 'Overall xx' row
+accuracy_results["Overall Accuracy"] = overall_accuracy
+precision_results["Overall Precision"] = overall_precision
+recall_results["Overall Recall"] = overall_recall
+coverage_results["Overall Coverage"] = overall_coverage
 
-# Convert to DataFrames and transpose to get classes as index, thresholds as columns
-accuracy_df = pd.DataFrame(accuracy_results).set_index("Class").T
-precision_df = pd.DataFrame(precision_results).set_index("Class").T
-recall_df = pd.DataFrame(recall_results).set_index("Class").T
-coverage_df = pd.DataFrame(coverage_results).set_index("Class").T
+# Convert to DataFrames
+accuracy_df = pd.DataFrame(accuracy_results, index=thresholds).T
+precision_df = pd.DataFrame(precision_results, index=thresholds).T
+recall_df = pd.DataFrame(recall_results, index=thresholds).T
+coverage_df = pd.DataFrame(coverage_results, index=thresholds).T
 
-# Convert overall metrics and merge into corresponding DataFrames
-overall_accuracy_df = pd.DataFrame(overall_accuracy_results).set_index("Class").T
-overall_precision_df = pd.DataFrame(overall_precision_results).set_index("Class").T
-overall_recall_df = pd.DataFrame(overall_recall_results).set_index("Class").T
-
-accuracy_df = pd.concat([accuracy_df, overall_accuracy_df])
-precision_df = pd.concat([precision_df, overall_precision_df])
-recall_df = pd.concat([recall_df, overall_recall_df])
-
-# Save DataFrames to Excel
+# Save to Excel
 output_file = "classification_metrics.xlsx"
 with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
     accuracy_df.to_excel(writer, sheet_name="Accuracy")

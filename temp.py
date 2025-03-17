@@ -20,17 +20,26 @@ precision_results = []
 recall_results = []
 coverage_results = []
 
+overall_accuracy_results = []
+overall_precision_results = []
+overall_recall_results = []
+
 for threshold in thresholds:
     filtered_df = df[df['confidence'] >= threshold]
 
     # Compute overall coverage
-    overall_coverage = len(filtered_df) / len(df)
+    overall_coverage = len(filtered_df) / len(df) if len(df) > 0 else 0
 
-    # Store row results
-    accuracy_row = {'Threshold': threshold}
-    precision_row = {'Threshold': threshold}
-    recall_row = {'Threshold': threshold}
-    coverage_row = {'Threshold': threshold, 'Overall': overall_coverage}
+    # Initialize row dictionaries
+    accuracy_row = {'Class': 'Accuracy'}
+    precision_row = {'Class': 'Precision'}
+    recall_row = {'Class': 'Recall'}
+    coverage_row = {'Class': 'Coverage', 'Overall': overall_coverage}
+
+    overall_TP = 0
+    overall_FP = 0
+    overall_FN = 0
+    total_covered_samples = len(filtered_df)
 
     # Compute metrics for each class
     for cls in classes:
@@ -46,10 +55,25 @@ for threshold in thresholds:
         recall = TP / (TP + FN) if (TP + FN) > 0 else None
         coverage = covered_cls_samples / total_cls_samples if total_cls_samples > 0 else None
 
+        # Store class-wise metrics
         accuracy_row[cls] = accuracy
         precision_row[cls] = precision
         recall_row[cls] = recall
         coverage_row[cls] = coverage
+
+        # Accumulate for overall metrics
+        overall_TP += TP
+        overall_FP += FP
+        overall_FN += FN
+
+    # Compute overall accuracy, precision, and recall
+    overall_accuracy = overall_TP / total_covered_samples if total_covered_samples > 0 else None
+    overall_precision = overall_TP / (overall_TP + overall_FP) if (overall_TP + overall_FP) > 0 else None
+    overall_recall = overall_TP / (overall_TP + overall_FN) if (overall_TP + overall_FN) > 0 else None
+
+    overall_accuracy_results.append({'Class': 'Overall Accuracy', threshold: overall_accuracy})
+    overall_precision_results.append({'Class': 'Overall Precision', threshold: overall_precision})
+    overall_recall_results.append({'Class': 'Overall Recall', threshold: overall_recall})
 
     # Append rows to results list
     accuracy_results.append(accuracy_row)
@@ -57,11 +81,20 @@ for threshold in thresholds:
     recall_results.append(recall_row)
     coverage_results.append(coverage_row)
 
-# Convert to DataFrames
-accuracy_df = pd.DataFrame(accuracy_results).set_index("Threshold")
-precision_df = pd.DataFrame(precision_results).set_index("Threshold")
-recall_df = pd.DataFrame(recall_results).set_index("Threshold")
-coverage_df = pd.DataFrame(coverage_results).set_index("Threshold")
+# Convert to DataFrames and transpose to get classes as index, thresholds as columns
+accuracy_df = pd.DataFrame(accuracy_results).set_index("Class").T
+precision_df = pd.DataFrame(precision_results).set_index("Class").T
+recall_df = pd.DataFrame(recall_results).set_index("Class").T
+coverage_df = pd.DataFrame(coverage_results).set_index("Class").T
+
+# Convert overall metrics and merge into corresponding DataFrames
+overall_accuracy_df = pd.DataFrame(overall_accuracy_results).set_index("Class").T
+overall_precision_df = pd.DataFrame(overall_precision_results).set_index("Class").T
+overall_recall_df = pd.DataFrame(overall_recall_results).set_index("Class").T
+
+accuracy_df = pd.concat([accuracy_df, overall_accuracy_df])
+precision_df = pd.concat([precision_df, overall_precision_df])
+recall_df = pd.concat([recall_df, overall_recall_df])
 
 # Save DataFrames to Excel
 output_file = "classification_metrics.xlsx"

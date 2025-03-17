@@ -1,9 +1,8 @@
-# Initialize result storage
-class_specific_metrics = {
-    "Accuracy": {},
-    "Precision": {},
-    "Recall": {}
-}
+# Initialize counters
+total_TP = 0
+total_FP = 0
+total_FN = 0
+total_samples = len(df)  # Total number of samples
 
 # Iterate over each class and apply its threshold
 for cls in class_thresholds.keys():
@@ -24,20 +23,12 @@ for cls in class_thresholds.keys():
     # False Negatives (FN)
     FN = len(df[(df["ground_truth"] == cls) & (df["prediction"] != cls)])
 
-    # Compute metrics
-    accuracy = TP / len(df_cls) if len(df_cls) > 0 else 0
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    # Accumulate values
+    total_TP += TP
+    total_FP += FP
+    total_FN += FN
 
-    # Store results
-    class_specific_metrics["Accuracy"][cls] = accuracy
-    class_specific_metrics["Precision"][cls] = precision
-    class_specific_metrics["Recall"][cls] = recall
-
-# Convert results to DataFrame
-class_specific_metrics_df = pd.DataFrame(class_specific_metrics)
-
-# Save to Excel
-class_specific_metrics_df.to_excel("class_specific_metrics.xlsx", sheet_name="Class-Specific KPIs")
-
-print("Class-specific KPIs saved to Excel!")
+# Compute overall metrics
+overall_accuracy = total_TP / total_samples  # Accuracy across all predictions
+overall_precision = total_TP / (total_TP + total_FP) if (total_TP + total_FP) > 0 else 0
+overall_recall = total_TP / (total_TP + total_FN) if (total_TP + total_FN) > 0 else 0

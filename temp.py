@@ -1,9 +1,13 @@
 # Step 1: Initialize clusters as individual sets
 clusters = {i: {class_names[i]} for i in range(num_classes)}
 
-# ✅ Iterate through each merge step
-for merge_id, (i, j, dist, _) in enumerate(linkage_matrix):
+# ✅ Iterate through each merge step in **REVERSE order**
+for merge_id, (i, j, dist, _) in reversed(list(enumerate(linkage_matrix))):
     i, j = int(i), int(j)  # Convert indices to integers
+
+    # ✅ Skip if either cluster is already merged
+    if i not in clusters or j not in clusters:
+        continue
 
     # Merge clusters i and j
     new_cluster = clusters[i] | clusters[j]  # Union of sets
@@ -16,6 +20,14 @@ for merge_id, (i, j, dist, _) in enumerate(linkage_matrix):
     # Print merge progress
     print(f"Merging {new_cluster} (Distance: {dist:.4f})")
     print(f"Current Clusters: {list(clusters.values())}\n")
+
+    # If we are down to only one cluster, break
+    if len(clusters) == 1:
+        break
+
+# Print the final merged cluster
+print("Final Merged Cluster:")
+print(list(clusters.values())[0])
 
 
 

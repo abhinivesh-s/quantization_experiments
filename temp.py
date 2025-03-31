@@ -1,17 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.cluster import AffinityPropagation, SpectralClustering, AgglomerativeClustering
-from sklearn.manifold import MDS
-from sklearn.metrics import pairwise_distances
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import squareform
+import copy # To keep track of clusters without modifying originals
 
 # --- 1. Prepare Data ---
-# Example Co-occurrence Matrix (Replace with your actual data)
-# Let's assume 6 classes: A, B, C, D, E, F
-# Clusters might be {A, B, C} and {D, E, F}
-
+# Example Co-occurrence Matrix (Same as before)
 class_names = ['Class A', 'Class B', 'Class C', 'Class D', 'Class E', 'Class F']
 co_occurrence_matrix = np.array([
     # A   B   C    D    E    F
@@ -25,165 +19,117 @@ co_occurrence_matrix = np.array([
 
 n_classes = co_occurrence_matrix.shape[0]
 
-# --- Optional: Ensure Symmetry (if your matrix isn't perfectly symmetric) ---
-# co_occurrence_matrix = (co_occurrence_matrix + co_occurrence_matrix.T) / 2
-
-# --- Convert Similarity (Co-occurrence) to Dissimilarity (Distance) ---
-# Required for some algorithms (Agglomerative, MDS)
-# Common approach: distance = max(similarity) - similarity
-# Handle diagonal: Often set self-distance to 0
-max_similarity = np.max(co_occurrence_matrix[np.triu_indices(n_classes, k=1)]) # Max off-diagonal
-# or use np.max(co_occurrence_matrix) if diagonal represents meaningful self-similarity
+# --- 2. Convert Similarity (Co-occurrence) to Dissimilarity (Distance) ---
+# distance = max(similarity) - similarity
+# Ensure diagonal is 0, matrix is symmetric and non-negative
+max_similarity = np.max(co_occurrence_matrix[np.triu_indices(n_classes, k=1)])
 distance_matrix = max_similarity - co_occurrence_matrix
-np.fill_diagonal(distance_matrix, 0) # Set self-distance to zero
-
-# Ensure distance matrix is valid (non-negative, symmetric, zero diagonal)
-distance_matrix[distance_matrix < 0] = 0 # Clip any potential negative values
-distance_matrix = (distance_matrix + distance_matrix.T) / 2 # Ensure symmetry
+distance_matrix[distance_matrix < 0] = 0
+distance_matrix = (distance_matrix + distance_matrix.T) / 2
 np.fill_diagonal(distance_matrix, 0)
 
-
-print("--- Original Co-occurrence Matrix ---")
-print(co_occurrence_matrix)
-print("\n--- Derived Distance Matrix ---")
+print("--- Distance Matrix (Lower value means more similar/higher co-occurrence) ---")
 print(np.round(distance_matrix, 2))
 
-# --- 2/3. Perform Clustering ---
-
-print("\n--- Clustering Results ---")
-
-# Method 1: Affinity Propagation (works directly on similarity/affinity)
-# Preference controls how many exemplars (clusters) are found. -np.inf means auto.
-# Damping factor helps convergence.
-# Note: Affinity propagation prefers *negative* distances or *positive* similarities.
-# Let's use the original co-occurrence matrix as similarity.
-# We might need to adjust the diagonal for AP, as it influences the 'preference'
-# Let's try with the original co-occurrence first.
-try:
-    # Using affinity='precomputed' requires a similarity matrix
-    # If AP expects dissimilarity, use -distance_matrix.
-    # Let's assume it works well with the positive co-occurrence as similarity:
-    af_prop = AffinityPropagation(affinity='precomputed', damping=0.7, random_state=42)
-    af_prop.fit(co_occurrence_matrix) # Provide similarity matrix
-    labels_ap = af_prop.labels_
-    n_clusters_ap = len(np.unique(labels_ap))
-    print(f"Affinity Propagation found {n_clusters_ap} clusters.")
-    print("Labels:", labels_ap)
-except Exception as e:
-    print(f"Affinity Propagation failed: {e}. Might need parameter tuning or data scaling.")
-    labels_ap = np.zeros(n_classes, dtype=int) # Placeholder
-
-
-# Method 2: Spectral Clustering (works directly on affinity/similarity)
-# Requires specifying n_clusters
-n_clusters_spectral = 2 # Guess or determine based on data/problem
-# Can use affinity='precomputed' with the co-occurrence matrix
-sc = SpectralClustering(n_clusters=n_clusters_spectral,
-                        affinity='precomputed', # Use the similarity matrix
-                        assign_labels='kmeans', # Or 'discretize'
-                        random_state=42)
-labels_sc = sc.fit_predict(co_occurrence_matrix) # Provide similarity matrix
-print(f"\nSpectral Clustering ({n_clusters_spectral} clusters):")
-print("Labels:", labels_sc)
-
-
-# Method 3: Agglomerative Clustering (Hierarchical - needs distance)
-# Requires specifying n_clusters or distance_threshold
-n_clusters_agg = 2 # Guess or determine based on data/problem
-# Needs distance matrix if using metric='precomputed'
-# Linkage methods: 'ward', 'complete', 'average', 'single'
-agg = AgglomerativeClustering(n_clusters=n_clusters_agg,
-                              affinity='precomputed', # Use the distance matrix
-                              linkage='average') # 'average' often works well for this type
-labels_agg = agg.fit_predict(distance_matrix) # Provide distance matrix
-print(f"\nAgglomerative Clustering ({n_clusters_agg} clusters, average linkage):")
-print("Labels:", labels_agg)
-
-# --- 4. Visualize Results ---
-
-# Choose one set of labels for consistent visualization (e.g., from Agglomerative)
-cluster_labels = labels_agg
-chosen_method = "Agglomerative Clustering"
-
-# --- Visualization 1: Original Heatmap ---
-plt.figure(figsize=(8, 7))
-sns.heatmap(co_occurrence_matrix, annot=True, fmt=".0f", cmap="viridis",
-            xticklabels=class_names, yticklabels=class_names)
-plt.title("Original Co-occurrence Matrix")
-plt.xlabel("Class")
-plt.ylabel("Class")
-plt.tight_layout()
-plt.show()
-
-# --- Visualization 2: Reordered Heatmap ---
-# Get the order of indices based on cluster labels
-order = np.argsort(cluster_labels)
-# Reorder the matrix and labels
-reordered_matrix = co_occurrence_matrix[order][:, order]
-reordered_names = [class_names[i] for i in order]
-
-plt.figure(figsize=(8, 7))
-sns.heatmap(reordered_matrix, annot=True, fmt=".0f", cmap="viridis",
-            xticklabels=reordered_names, yticklabels=reordered_names)
-plt.title(f"Co-occurrence Matrix Reordered by {chosen_method} Clusters")
-plt.xlabel("Class (Reordered)")
-plt.ylabel("Class (Reordered)")
-plt.tight_layout()
-plt.show()
-
-# Add lines to delineate clusters in the reordered heatmap
-cluster_boundaries = np.where(np.diff(cluster_labels[order]))[0] + 1
-plt.figure(figsize=(8, 7))
-sns.heatmap(reordered_matrix, annot=True, fmt=".0f", cmap="viridis",
-            xticklabels=reordered_names, yticklabels=reordered_names)
-for boundary in cluster_boundaries:
-    plt.axhline(boundary, color='red', linewidth=2)
-    plt.axvline(boundary, color='red', linewidth=2)
-plt.title(f"Reordered Matrix with Cluster Boundaries ({chosen_method})")
-plt.xlabel("Class (Reordered)")
-plt.ylabel("Class (Reordered)")
-plt.tight_layout()
-plt.show()
-
-
-# --- Visualization 3: Dimensionality Reduction (MDS) ---
-# MDS uses the distance matrix
-mds = MDS(n_components=2, dissimilarity='precomputed', random_state=42, normalized_stress=False)
-# Note: Use normalized_stress='auto' or False for newer sklearn versions if you get warnings.
-pos = mds.fit_transform(distance_matrix)
-
-plt.figure(figsize=(8, 7))
-scatter = plt.scatter(pos[:, 0], pos[:, 1], c=cluster_labels, cmap='viridis', s=100)
-# Add labels to points
-for i, name in enumerate(class_names):
-    plt.text(pos[i, 0] + 0.02, pos[i, 1] + 0.02, name, fontsize=9)
-
-plt.title(f'MDS Projection of Classes based on Co-occurrence Distance\n(Colored by {chosen_method} Clusters)')
-plt.xlabel('MDS Dimension 1')
-plt.ylabel('MDS Dimension 2')
-plt.grid(True, linestyle='--', alpha=0.6)
-# Add legend if desired (more useful with more clusters)
-plt.legend(handles=scatter.legend_elements()[0], labels=np.unique(cluster_labels), title="Clusters")
-plt.tight_layout()
-plt.show()
-
-
-# --- Visualization 4: Dendrogram (for Agglomerative Clustering) ---
-# Requires the condensed distance matrix (upper or lower triangle)
+# --- 3. Calculate Linkage ---
+# Convert the square distance matrix to a condensed distance matrix (1D array)
+# SciPy's linkage function requires this format.
 condensed_distance = squareform(distance_matrix)
 
-# Calculate linkage matrix
-# Choose the same linkage method as used in AgglomerativeClustering
-linkage_matrix = linkage(condensed_distance, method='average')
+# Perform hierarchical/agglomerative clustering
+# Linkage methods determine how distance between clusters is calculated:
+# - 'average': Uses the average of the distances of each observation of the two sets. Good for co-occurrence.
+# - 'complete': Uses the maximum distances between all observations of the two sets.
+# - 'single': Uses the minimum of the distances between all observations of the two sets.
+# - 'ward': Minimizes the variance of the clusters being merged. (Requires Euclidean-like distances)
+# Choose 'average' as it reflects the average co-occurrence idea well.
+linkage_method = 'average'
+Z = linkage(condensed_distance, method=linkage_method)
 
-plt.figure(figsize=(10, 6))
-dendrogram(linkage_matrix,
-           labels=class_names,
-           leaf_rotation=90., # rotates the x axis labels
-           leaf_font_size=10.) # font size for the x axis labels
-plt.title('Hierarchical Clustering Dendrogram (Average Linkage)')
+print(f"\n--- Linkage Matrix (Z) using '{linkage_method}' linkage ---")
+print("Format: [idx1, idx2, distance, num_items_in_new_cluster]")
+print(Z)
+
+# --- 4. Interpret Linkage Matrix - Show Clusters Iteratively ---
+
+print("\n--- Iterative Clustering Steps ---")
+
+# Start with each class as its own cluster
+# We'll store clusters as sets of *original* class indices (0 to n_classes-1)
+initial_clusters = [{i} for i in range(n_classes)]
+current_clusters = copy.deepcopy(initial_clusters) # List of active clusters (sets)
+
+# Map cluster indices (from linkage matrix) to the set of original items
+# Indices 0 to n-1 are original items
+# Indices n to 2n-2 are newly formed clusters from linkage matrix rows
+cluster_map = {i: {i} for i in range(n_classes)}
+
+# Iterate through the linkage matrix rows (each row represents a merge)
+for i in range(Z.shape[0]):
+    row = Z[i]
+    idx1, idx2, dist, num_items = int(row[0]), int(row[1]), row[2], int(row[3])
+
+    # Find the actual sets of original items for the merging clusters
+    set1 = cluster_map[idx1]
+    set2 = cluster_map[idx2]
+
+    # Create the new merged cluster
+    new_set = set1.union(set2)
+
+    # Assign this new set to the new cluster index (n + i)
+    new_cluster_idx = n_classes + i
+    cluster_map[new_cluster_idx] = new_set
+
+    # Update the list of *current* clusters
+    # Find and remove the two old clusters from the list
+    temp_current_clusters = []
+    merged_one = False
+    merged_two = False
+    for cluster in current_clusters:
+        if cluster == set1 and not merged_one:
+             merged_one = True # Remove first occurrence
+        elif cluster == set2 and not merged_two:
+             merged_two = True # Remove first occurrence
+        else:
+            temp_current_clusters.append(cluster)
+
+    # Add the new merged cluster
+    temp_current_clusters.append(new_set)
+    current_clusters = temp_current_clusters
+
+    # --- Output the state at this step ---
+    print(f"\nStep {i+1}:")
+    # Convert indices to names for printing
+    names1 = sorted([class_names[item_idx] for item_idx in set1])
+    names2 = sorted([class_names[item_idx] for item_idx in set2])
+    print(f" - Merged: Cluster {idx1} {names1} and Cluster {idx2} {names2}")
+    print(f" - Distance: {dist:.2f}")
+    print(f" - New Cluster ID: {new_cluster_idx} (Size: {num_items})")
+    print(f" - Current Clusters ({len(current_clusters)}):")
+    # Print current clusters with names
+    current_clusters_named = []
+    for cluster_set in current_clusters:
+         current_clusters_named.append(sorted([class_names[item_idx] for item_idx in cluster_set]))
+    # Sort the list of lists for consistent display order (optional)
+    current_clusters_named.sort(key=lambda x: x[0])
+    print("   ", current_clusters_named)
+
+
+# --- 5. Visualize ---
+# The Dendrogram perfectly visualizes this iterative merging process
+plt.figure(figsize=(12, 7))
+dendrogram(
+    Z,
+    labels=class_names,
+    leaf_rotation=90.,  # rotates the x axis labels
+    leaf_font_size=10.,  # font size for the x axis labels
+    orientation='top', # Can be 'top', 'bottom', 'left', 'right'
+)
+plt.title(f'Hierarchical Clustering Dendrogram ({linkage_method} linkage)')
 plt.xlabel('Class')
 plt.ylabel('Distance (Derived from Co-occurrence)')
 plt.grid(axis='y', linestyle='--', alpha=0.6)
 plt.tight_layout()
 plt.show()
+
+print("\n--- End of Iterative Clustering ---")

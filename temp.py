@@ -40,3 +40,18 @@ def map_to_clusters(y, clusters):
             cluster_map[cls] = rep_class  # Assign representative class
 
     return np.array([cluster_map[label] for label in y])
+
+
+
+# Create the plot
+plt.figure(figsize=(6, 4))
+plt.plot(x, y, marker='o', linestyle='-')
+
+# Labels and title
+plt.xlabel("X-axis")
+plt.ylabel("Y-axis")
+plt.title("Plot of X vs Y")
+
+# Show grid and plot
+plt.grid(True)
+plt.show()

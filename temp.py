@@ -28,3 +28,15 @@ for merge_id, (i, j, dist, _) in enumerate(linkage_matrix):
     # Print clusters at each step
     print(f"Step {merge_id + 1}: Merged {i} and {j} → New Cluster {new_cluster_id}")
     print(f"Clusters: {list(clusters.values())}\n")
+
+
+
+def map_to_clusters(y, clusters):
+    """Maps each true/pred label to the first element of its cluster (sets version)."""
+    cluster_map = {}
+    for cluster in clusters.values():  
+        rep_class = next(iter(cluster))  # Pick an arbitrary element from the set
+        for cls in cluster:
+            cluster_map[cls] = rep_class  # Assign representative class
+
+    return np.array([cluster_map[label] for label in y])

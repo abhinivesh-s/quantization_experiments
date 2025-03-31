@@ -1,3 +1,27 @@
+# Step 1: Initialize clusters as individual sets
+clusters = {i: {class_names[i]} for i in range(num_classes)}
+
+# ✅ Iterate through each merge step
+for merge_id, (i, j, dist, _) in enumerate(linkage_matrix):
+    i, j = int(i), int(j)  # Convert indices to integers
+
+    # Merge clusters i and j
+    new_cluster = clusters[i] | clusters[j]  # Union of sets
+    new_cluster_id = num_classes + merge_id  # Unique new cluster ID
+
+    # Remove old clusters and add new one
+    del clusters[i], clusters[j]
+    clusters[new_cluster_id] = new_cluster  # Store as set
+
+    # Print merge progress
+    print(f"Merging {new_cluster} (Distance: {dist:.4f})")
+    print(f"Current Clusters: {list(clusters.values())}\n")
+
+
+
+
+
+
 import numpy as np
 import scipy.cluster.hierarchy as sch
 

@@ -1,0 +1,44 @@
+1. Raw Output of LinearSVC
+LinearSVC by itself does not provide probabilities — it gives decision function values, which are real-valued scores representing the distance from the separating hyperplane (margin).
+
+These scores are uncalibrated and not in the range 
+[
+0
+,
+1
+]
+[0,1].
+
+2. What CalibratedClassifierCV Does
+CalibratedClassifierCV takes these raw decision scores and fits a probability calibration model on a held-out validation set (default is 3-fold cross-validation).
+
+By default, it uses sigmoid calibration (i.e., Platt scaling), which means it fits a logistic regression model to map the decision function values to calibrated probabilities.
+
+3. Default Parameters
+Here’s a breakdown of the defaults:
+
+python
+Copy
+Edit
+CalibratedClassifierCV(base_estimator=LinearSVC(), method='sigmoid', cv=3)
+method='sigmoid': Uses Platt scaling.
+
+cv=3: Splits the training data into 3 folds — 2 folds for training the base estimator, and 1 for calibrating the probabilities (repeated 3 times).
+
+4. Final Confidence Scores
+For each class (in binary or multiclass settings), after training, the predict_proba() method gives calibrated probabilities (confidence scores).
+
+These probabilities are learned from logistic regression trained on the base model's decision function outputs.
+
+Summary:
+The confidence score is:
+
+text
+Copy
+Edit
+P(y=1 | x) = sigmoid(a * f(x) + b)
+Where:
+
+f(x) is the decision function output from LinearSVC.
+
+a and b are learned from logistic regression during calibration.

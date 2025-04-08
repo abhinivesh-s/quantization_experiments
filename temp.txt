@@ -1,44 +1,96 @@
-1. Raw Output of LinearSVC
-LinearSVC by itself does not provide probabilities — it gives decision function values, which are real-valued scores representing the distance from the separating hyperplane (margin).
+Awesome question — and you're tackling something **super important**:  
+When your **OOT (test) data isn't representative of the real-world class distribution**, raw metrics like accuracy, **weighted accuracy**, or even balanced accuracy can be **misleading**.
 
-These scores are uncalibrated and not in the range 
-[
-0
-,
-1
-]
-[0,1].
+---
 
-2. What CalibratedClassifierCV Does
-CalibratedClassifierCV takes these raw decision scores and fits a probability calibration model on a held-out validation set (default is 3-fold cross-validation).
+## 🎯 Goal: Estimate model performance that reflects **real-world (population) distribution**
 
-By default, it uses sigmoid calibration (i.e., Platt scaling), which means it fits a logistic regression model to map the decision function values to calibrated probabilities.
+Here’s how to go about it:
 
-3. Default Parameters
-Here’s a breakdown of the defaults:
+---
 
-python
-Copy
-Edit
-CalibratedClassifierCV(base_estimator=LinearSVC(), method='sigmoid', cv=3)
-method='sigmoid': Uses Platt scaling.
+## ✅ 1. **Obtain or estimate the true population class distribution**
 
-cv=3: Splits the training data into 3 folds — 2 folds for training the base estimator, and 1 for calibrating the probabilities (repeated 3 times).
+You’ll need:
+```python
+# Example: Estimated class distribution from production logs, or business knowledge
+population_dist = {
+    0: 0.25,
+    1: 0.25,
+    2: 0.30,
+    3: 0.20,
+}
+```
 
-4. Final Confidence Scores
-For each class (in binary or multiclass settings), after training, the predict_proba() method gives calibrated probabilities (confidence scores).
+Each value represents the **fraction of that class in the population**.
 
-These probabilities are learned from logistic regression trained on the base model's decision function outputs.
+---
 
-Summary:
-The confidence score is:
+## ✅ 2. **Calculate class-wise performance (e.g., accuracy, recall, precision) on OOT**
 
-text
-Copy
-Edit
-P(y=1 | x) = sigmoid(a * f(x) + b)
-Where:
+You can do this using `classification_report` or confusion matrix:
 
-f(x) is the decision function output from LinearSVC.
+```python
+from sklearn.metrics import confusion_matrix
+import numpy as np
 
-a and b are learned from logistic regression during calibration.
+cm = confusion_matrix(y_true_oot, y_pred_oot, labels=range(num_classes))
+
+# Class-wise accuracy (correct / total true samples for each class)
+per_class_acc = np.diag(cm) / cm.sum(axis=1)  # shape: (num_classes,)
+```
+
+---
+
+## ✅ 3. **Compute population-weighted performance**
+
+Instead of weighting by support in the OOT data, weight by the **population distribution**:
+
+```python
+# Make sure class indices match population keys
+weighted_acc = sum(population_dist[i] * per_class_acc[i] for i in range(num_classes))
+```
+
+This gives you a **population-weighted accuracy** — i.e., how the model would perform if the test data followed the real-world distribution.
+
+You can do the same with other per-class metrics (e.g., precision, recall, F1).
+
+---
+
+## ⚠️ Why not just use the OOT support?
+
+Because if a class has only a few examples in OOT but is common in production, its performance will be **underrepresented** in any weighted metric.
+
+Example:
+- Class A is 30% of population but only 5% in your OOT → underweighted
+- Class B is 5% of population but 30% in OOT → overweighted
+
+That skews your metric unless you correct for it.
+
+---
+
+## ✅ Optional: Calibrate your OOT set via **re-weighting samples**
+
+If you’re doing model evaluation or plotting metrics (like ROC curves), you can even **re-weight each sample** based on the true population class proportions:
+
+```python
+# Sample weights: population freq / oot freq
+sample_weights = np.array([population_dist[y] / oot_class_dist[y] for y in y_true_oot])
+
+from sklearn.metrics import accuracy_score
+weighted_accuracy = accuracy_score(y_true_oot, y_pred_oot, sample_weight=sample_weights)
+```
+
+---
+
+## 🔁 TL;DR
+
+| Situation                                   | Solution                                      |
+|--------------------------------------------|-----------------------------------------------|
+| OOT data not matching real-world classes    | Use per-class metrics + **population weights** |
+| Need to evaluate aggregate performance      | Compute **population-weighted** accuracy/F1/etc |
+| Want sample-level metrics (e.g., ROC/AUC)   | Use **sample-level weights**                  |
+
+---
+
+Let me know if you want help coding this on your specific metrics DataFrame!

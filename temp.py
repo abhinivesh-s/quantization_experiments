@@ -1,135 +1,157 @@
-import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, dendrogram
-from scipy.spatial.distance import squareform
-import copy # To keep track of clusters without modifying originals
+import seaborn as sns
+from wordcloud import WordCloud
+from collections import Counter
+from sklearn.feature_extraction.text import CountVectorizer
+import string
+import re
+from langdetect import detect, DetectorFactory
+from langdetect.lang_detect_exception import LangDetectException
 
-# --- 1. Prepare Data ---
-# Example Co-occurrence Matrix (Same as before)
-class_names = ['Class A', 'Class B', 'Class C', 'Class D', 'Class E', 'Class F']
-co_occurrence_matrix = np.array([
-    # A   B   C    D    E    F
-    [100, 80, 70,  10,   5,  15], # A
-    [ 80, 90, 65,  12,   8,  10], # B
-    [ 70, 65, 85,   8,  10,   5], # C
-    [ 10, 12,  8, 110,  85,  75], # D
-    [  5,  8, 10,  85, 100,  80], # E
-    [ 15, 10,  5,  75,  80,  95]  # F
-])
+DetectorFactory.seed = 42  # for consistent language detection results
 
-n_classes = co_occurrence_matrix.shape[0]
+def perform_eda(df, text_column='text', target_column=None, date_column='date',
+                categorical_columns=['file_extension', 'line_of_business']):
+    sns.set(style="whitegrid")
 
-# --- 2. Convert Similarity (Co-occurrence) to Dissimilarity (Distance) ---
-# distance = max(similarity) - similarity
-# Ensure diagonal is 0, matrix is symmetric and non-negative
-max_similarity = np.max(co_occurrence_matrix[np.triu_indices(n_classes, k=1)])
-distance_matrix = max_similarity - co_occurrence_matrix
-distance_matrix[distance_matrix < 0] = 0
-distance_matrix = (distance_matrix + distance_matrix.T) / 2
-np.fill_diagonal(distance_matrix, 0)
+    # 1. BASIC INFO
+    print("Data Info:")
+    print(df.info())
+    print("\nMissing Values:\n", df.isnull().sum())
+    print("\nBasic Stats:\n", df.describe(include='all'))
 
-print("--- Distance Matrix (Lower value means more similar/higher co-occurrence) ---")
-print(np.round(distance_matrix, 2))
+    # 2. TEXT COLUMN ANALYSIS
+    print("\nText Column Analysis:")
 
-# --- 3. Calculate Linkage ---
-# Convert the square distance matrix to a condensed distance matrix (1D array)
-# SciPy's linkage function requires this format.
-condensed_distance = squareform(distance_matrix)
+    df['text_length'] = df[text_column].astype(str).apply(len)
+    df['word_count'] = df[text_column].astype(str).apply(lambda x: len(x.split()))
 
-# Perform hierarchical/agglomerative clustering
-# Linkage methods determine how distance between clusters is calculated:
-# - 'average': Uses the average of the distances of each observation of the two sets. Good for co-occurrence.
-# - 'complete': Uses the maximum distances between all observations of the two sets.
-# - 'single': Uses the minimum of the distances between all observations of the two sets.
-# - 'ward': Minimizes the variance of the clusters being merged. (Requires Euclidean-like distances)
-# Choose 'average' as it reflects the average co-occurrence idea well.
-linkage_method = 'average'
-Z = linkage(condensed_distance, method=linkage_method)
+    # Text length distribution
+    plt.figure(figsize=(12, 5))
+    sns.histplot(df['text_length'], bins=50, kde=True, color='purple')
+    plt.title('Text Length Distribution')
+    plt.xlabel('Number of Characters')
+    plt.ylabel('Frequency')
+    plt.show()
 
-print(f"\n--- Linkage Matrix (Z) using '{linkage_method}' linkage ---")
-print("Format: [idx1, idx2, distance, num_items_in_new_cluster]")
-print(Z)
+    # Word count distribution
+    plt.figure(figsize=(12, 5))
+    sns.histplot(df['word_count'], bins=50, kde=True, color='green')
+    plt.title('Word Count Distribution')
+    plt.xlabel('Number of Words')
+    plt.ylabel('Frequency')
+    plt.show()
 
-# --- 4. Interpret Linkage Matrix - Show Clusters Iteratively ---
+    # Most common words
+    def preprocess_text(text):
+        text = text.lower()
+        text = re.sub(f"[{string.punctuation}]", "", text)
+        return text
 
-print("\n--- Iterative Clustering Steps ---")
+    corpus = df[text_column].dropna().astype(str).apply(preprocess_text).str.cat(sep=' ')
+    word_freq = Counter(corpus.split())
+    common_words = word_freq.most_common(30)
 
-# Start with each class as its own cluster
-# We'll store clusters as sets of *original* class indices (0 to n_classes-1)
-initial_clusters = [{i} for i in range(n_classes)]
-current_clusters = copy.deepcopy(initial_clusters) # List of active clusters (sets)
+    # Barplot of common words
+    plt.figure(figsize=(12, 6))
+    words, freqs = zip(*common_words)
+    sns.barplot(x=list(freqs), y=list(words), palette='magma')
+    plt.title('Top 30 Most Common Words')
+    plt.xlabel('Frequency')
+    plt.show()
 
-# Map cluster indices (from linkage matrix) to the set of original items
-# Indices 0 to n-1 are original items
-# Indices n to 2n-2 are newly formed clusters from linkage matrix rows
-cluster_map = {i: {i} for i in range(n_classes)}
+    # WordCloud
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(corpus)
+    plt.figure(figsize=(15, 7))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.title('WordCloud of Text')
+    plt.show()
 
-# Iterate through the linkage matrix rows (each row represents a merge)
-for i in range(Z.shape[0]):
-    row = Z[i]
-    idx1, idx2, dist, num_items = int(row[0]), int(row[1]), row[2], int(row[3])
+    # N-gram analysis (bi-grams)
+    vec = CountVectorizer(ngram_range=(2, 2), stop_words='english').fit(df[text_column].dropna().astype(str))
+    bag_of_words = vec.transform(df[text_column].dropna().astype(str))
+    sum_words = bag_of_words.sum(axis=0)
+    words_freq = [(word, sum_words[0, idx]) for word, idx in vec.vocabulary_.items()]
+    words_freq = sorted(words_freq, key=lambda x: x[1], reverse=True)[:20]
 
-    # Find the actual sets of original items for the merging clusters
-    set1 = cluster_map[idx1]
-    set2 = cluster_map[idx2]
+    plt.figure(figsize=(12, 6))
+    bigrams, freqs = zip(*words_freq)
+    sns.barplot(x=list(freqs), y=list(bigrams), palette='viridis')
+    plt.title('Top 20 Most Common Bigrams')
+    plt.xlabel('Frequency')
+    plt.show()
 
-    # Create the new merged cluster
-    new_set = set1.union(set2)
+    # 3. TARGET VARIABLE EXPLORATION
+    if target_column and target_column in df.columns:
+        print(f"\nTarget Variable Distribution: {target_column}")
+        plt.figure(figsize=(10, 5))
+        order = df[target_column].value_counts().index
+        sns.countplot(data=df, x=target_column, order=order, palette='Set2')
+        plt.title('Class Distribution')
+        plt.xticks(rotation=45)
+        plt.ylabel('Count')
+        plt.show()
 
-    # Assign this new set to the new cluster index (n + i)
-    new_cluster_idx = n_classes + i
-    cluster_map[new_cluster_idx] = new_set
+        # Text length by class
+        plt.figure(figsize=(12, 6))
+        sns.boxplot(data=df, x=target_column, y='text_length')
+        plt.title('Text Length by Target Class')
+        plt.xticks(rotation=45)
+        plt.show()
 
-    # Update the list of *current* clusters
-    # Find and remove the two old clusters from the list
-    temp_current_clusters = []
-    merged_one = False
-    merged_two = False
-    for cluster in current_clusters:
-        if cluster == set1 and not merged_one:
-             merged_one = True # Remove first occurrence
-        elif cluster == set2 and not merged_two:
-             merged_two = True # Remove first occurrence
-        else:
-            temp_current_clusters.append(cluster)
+    # 4. LANGUAGE DETECTION
+    def detect_language_safe(text):
+        try:
+            return detect(text)
+        except LangDetectException:
+            return "error"
 
-    # Add the new merged cluster
-    temp_current_clusters.append(new_set)
-    current_clusters = temp_current_clusters
+    print("\nDetecting Languages... (this may take a bit)")
+    df['language'] = df[text_column].dropna().astype(str).apply(detect_language_safe)
 
-    # --- Output the state at this step ---
-    print(f"\nStep {i+1}:")
-    # Convert indices to names for printing
-    names1 = sorted([class_names[item_idx] for item_idx in set1])
-    names2 = sorted([class_names[item_idx] for item_idx in set2])
-    print(f" - Merged: Cluster {idx1} {names1} and Cluster {idx2} {names2}")
-    print(f" - Distance: {dist:.2f}")
-    print(f" - New Cluster ID: {new_cluster_idx} (Size: {num_items})")
-    print(f" - Current Clusters ({len(current_clusters)}):")
-    # Print current clusters with names
-    current_clusters_named = []
-    for cluster_set in current_clusters:
-         current_clusters_named.append(sorted([class_names[item_idx] for item_idx in cluster_set]))
-    # Sort the list of lists for consistent display order (optional)
-    current_clusters_named.sort(key=lambda x: x[0])
-    print("   ", current_clusters_named)
+    plt.figure(figsize=(10, 5))
+    sns.countplot(data=df, x='language', order=df['language'].value_counts().index, palette='coolwarm')
+    plt.title('Detected Language Distribution')
+    plt.xlabel('Language Code')
+    plt.ylabel('Count')
+    plt.show()
 
+    # 5. DATE ANALYSIS
+    if date_column in df.columns:
+        df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+        df['year_month'] = df[date_column].dt.to_period('M')
+        plt.figure(figsize=(14, 6))
+        df['year_month'].value_counts().sort_index().plot(kind='bar')
+        plt.title('Document Counts Over Time')
+        plt.xlabel('Year-Month')
+        plt.ylabel('Number of Documents')
+        plt.xticks(rotation=45)
+        plt.show()
 
-# --- 5. Visualize ---
-# The Dendrogram perfectly visualizes this iterative merging process
-plt.figure(figsize=(12, 7))
-dendrogram(
-    Z,
-    labels=class_names,
-    leaf_rotation=90.,  # rotates the x axis labels
-    leaf_font_size=10.,  # font size for the x axis labels
-    orientation='top', # Can be 'top', 'bottom', 'left', 'right'
-)
-plt.title(f'Hierarchical Clustering Dendrogram ({linkage_method} linkage)')
-plt.xlabel('Class')
-plt.ylabel('Distance (Derived from Co-occurrence)')
-plt.grid(axis='y', linestyle='--', alpha=0.6)
-plt.tight_layout()
-plt.show()
+    # 6. CATEGORICAL COLUMN DISTRIBUTIONS
+    for col in categorical_columns:
+        if col in df.columns:
+            plt.figure(figsize=(10, 5))
+            order = df[col].value_counts().iloc[:20].index
+            sns.countplot(data=df, x=col, order=order, palette='pastel')
+            plt.title(f'Distribution of {col}')
+            plt.xticks(rotation=45)
+            plt.ylabel('Count')
+            plt.show()
 
-print("\n--- End of Iterative Clustering ---")
+    # 7. Text length by categorical columns
+    for cat in categorical_columns:
+        if cat in df.columns:
+            plt.figure(figsize=(12, 5))
+            sns.boxplot(data=df, x=cat, y='text_length')
+            plt.title(f'Text Length Distribution by {cat}')
+            plt.xticks(rotation=45)
+            plt.show()
+
+    print("\nEDA complete.")
+
+# Example usage
+perform_eda(df, text_column='text', target_column='label', date_column='date',
+            categorical_columns=['file_extension', 'line_of_business'])

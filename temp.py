@@ -155,3 +155,9 @@ def perform_eda(df, text_column='text', target_column=None, date_column='date',
 # Example usage
 perform_eda(df, text_column='text', target_column='label', date_column='date',
             categorical_columns=['file_extension', 'line_of_business'])
+
+
+pattern = re.compile(r'\b(' + '|'.join(map(re.escape, names)) + r')\b')
+
+df['text'] = df['text'].apply(lambda x: pattern.sub('', str(x)))
+

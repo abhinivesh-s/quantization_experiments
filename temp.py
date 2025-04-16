@@ -157,7 +157,10 @@ perform_eda(df, text_column='text', target_column='label', date_column='date',
             categorical_columns=['file_extension', 'line_of_business'])
 
 
-pattern = re.compile(r'\b(' + '|'.join(map(re.escape, names)) + r')\b')
 
-df['text'] = df['text'].apply(lambda x: pattern.sub('', str(x)))
+names = ['Alice', 'Bob', 'Charlie']
+pattern = r'\b(' + '|'.join(map(re.escape, names)) + r')\b'
+
+df['text'] = df['text'].str.replace(pattern, '', regex=True)
+
 

@@ -173,4 +173,10 @@ df['text'] = df['text'].str.replace(r'\b(\w+)( \1\b)+', r'\1', regex=True)
 r'\1' keeps just the first occurrence"""
 
 
+labels = ['0-10', '11-20', '21-30', '31-50', '51-100', '100+']
+
+df['token_bucket'] = pd.cut(df['num_tokens'], bins=bins, labels=labels, right=True)
+
+
+
 

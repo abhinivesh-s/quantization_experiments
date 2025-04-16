@@ -177,6 +177,13 @@ labels = ['0-10', '11-20', '21-30', '31-50', '51-100', '100+']
 
 df['token_bucket'] = pd.cut(df['num_tokens'], bins=bins, labels=labels, right=True)
 
+name_set = set(name.lower() for name in names.words())
+
+df['text'] = df['text'].apply(
+    lambda x: ' '.join([word for word in str(x).split() if word.lower() not in name_set])
+)
+
+
 
 
 

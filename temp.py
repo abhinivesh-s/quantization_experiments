@@ -163,4 +163,14 @@ pattern = r'\b(' + '|'.join(map(re.escape, names)) + r')\b'
 
 df['text'] = df['text'].str.replace(pattern, '', regex=True)
 
+# remove repeated consecutive words in a string
+df['text'] = df['text'].str.replace(r'\b(\w+)( \1\b)+', r'\1', regex=True)
+
+"""(\w+) captures a word
+
+( \1)+ matches repeated occurrences of that word
+
+r'\1' keeps just the first occurrence"""
+
+
 

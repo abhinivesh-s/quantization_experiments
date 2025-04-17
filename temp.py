@@ -186,13 +186,16 @@ df['text'] = df['text'].apply(
 
 def process_in_batches(df, batch_size=10000):
     processed_batches = []
-    
-    for start in tqdm(range(0, len(df), batch_size)):
+    num_batches = (len(df) + batch_size - 1) // batch_size  # ceil division
+
+    for i, start in enumerate(tqdm(range(0, len(df), batch_size), total=num_batches)):
         end = start + batch_size
+        print(f"\nProcessing batch {i + 1}/{num_batches} (rows {start} to {end - 1})")
+
         batch = df.iloc[start:end].copy()
         processed_batch = preprocess(batch)
         processed_batches.append(processed_batch)
-    
+
     return pd.concat(processed_batches, ignore_index=True)
 
 

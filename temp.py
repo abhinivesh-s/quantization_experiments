@@ -199,6 +199,10 @@ def process_in_batches(df, batch_size=10000):
     return pd.concat(processed_batches, ignore_index=True)
 
 
+email_pattern = r'\b[\w\.-]+@[\w\.-]+\.\w{2,4}\b'
+df['text'] = df['text'].str.replace(email_pattern, ' ', regex=True)
+
+
 
 
 

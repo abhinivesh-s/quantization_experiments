@@ -184,6 +184,18 @@ df['text'] = df['text'].apply(
 )
 
 
+def process_in_batches(df, batch_size=10000):
+    processed_batches = []
+    
+    for start in tqdm(range(0, len(df), batch_size)):
+        end = start + batch_size
+        batch = df.iloc[start:end].copy()
+        processed_batch = preprocess(batch)
+        processed_batches.append(processed_batch)
+    
+    return pd.concat(processed_batches, ignore_index=True)
+
+
 
 
 

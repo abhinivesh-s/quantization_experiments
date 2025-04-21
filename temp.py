@@ -203,6 +203,19 @@ email_pattern = r'\b[\w\.-]+@[\w\.-]+\.\w{2,4}\b'
 df['text'] = df['text'].str.replace(email_pattern, ' ', regex=True)
 
 
+Out-of-vocabulary (OOV) handling in TF-IDF (Term Frequency–Inverse Document Frequency) is a bit different from models like word embeddings or neural networks because TF-IDF is a vocabulary-based statistical method. Here's how OOV typically works in this context:
+
+🔍 What is OOV in TF-IDF?
+When using TF-IDF, you first fit a vectorizer (like TfidfVectorizer in scikit-learn) on a corpus. The vocabulary it learns during this phase is fixed. Any word not seen during this fit phase is considered OOV when transforming new/unseen text.
+
+⚙️ How TF-IDF Handles OOV:
+Default behavior: Words not seen during fitting are ignored during the transform step. They are simply not included in the TF-IDF vector because they don’t exist in the learned vocabulary.
+
+This results in:
+
+The vector still has the same size as the original vocabulary.
+
+The OOV words have zero contribution to the vector.
 
 
 

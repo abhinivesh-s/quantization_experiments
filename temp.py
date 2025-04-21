@@ -218,4 +218,13 @@ The vector still has the same size as the original vocabulary.
 The OOV words have zero contribution to the vector.
 
 
+# Convert dictionary to DataFrame
+report_df = pd.DataFrame(report_dict).transpose()
+
+# Optional: round values for cleaner output
+report_df = report_df.round(2)
+
+# Save to Excel
+report_df.to_excel("classification_report.xlsx", engine='openpyxl')
+
 

@@ -7,10 +7,11 @@ from collections import Counter
 import re # For basic tokenization
 from tqdm.notebook import tqdm # Optional: for progress bars on large datasets
 import warnings
+import math # For calculating number of bins
 
-# Suppress specific warnings if desired (e.g., UserWarnings from Seaborn/Matplotlib)
+# Suppress specific warnings if desired
 # warnings.filterwarnings('ignore', category=UserWarning)
-# warnings.filterwarnings("ignore", category=FutureWarning) # Tqdm might raise this
+# warnings.filterwarnings("ignore", category=FutureWarning)
 
 # --- Plotting Configuration ---
 sns.set_style('whitegrid')
@@ -28,18 +29,13 @@ def basic_tokenizer(text):
     return text.split()
 
 # --- Helper Function for Plotting Discrete Distributions ---
-def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categories=40, fixed_width=18): # Increased default max_categories and added fixed_width
+def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categories=40, fixed_width=18):
     """Plots count and normalized count for a discrete column with fixed width."""
-    # Ensure the column exists and is not empty
     if col_name not in data.columns or data[col_name].isnull().all():
         print(f"Skipping plot for '{col_name}' in '{df_name}': Column not found or all values are NaN.")
         return
-
-    # Convert to string to handle mixed types or numerical categories gracefully
-    data = data.copy() # Avoid SettingWithCopyWarning
+    data = data.copy()
     data[col_name] = data[col_name].astype(str)
-
-    # Limit categories if too many
     value_counts = data[col_name].value_counts()
     if len(value_counts) > max_categories:
         top_categories = value_counts.nlargest(max_categories).index
@@ -50,14 +46,10 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         data_filtered = data
         plot_title_suffix = ''
         category_order = value_counts.index
-
     if data_filtered.empty:
          print(f"Skipping plot for '{col_name}' in '{df_name}': No data remains after filtering top categories (or original data was empty/NaN).")
          return
-
-    # --- USE FIXED WIDTH ---
     plt.figure(figsize=(fixed_width, 6))
-
     # Count Plot
     plt.subplot(1, 2, 1)
     try:
@@ -68,9 +60,7 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         plt.xticks(rotation=rotation, ha='right')
     except Exception as e:
         print(f"Error plotting countplot for {col_name} in {df_name}: {e}")
-        plt.close()
-        return
-
+        plt.close(); return # Close figure on error
     # Normalized Count Plot
     plt.subplot(1, 2, 2)
     try:
@@ -82,20 +72,17 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         plt.xticks(rotation=rotation, ha='right')
     except Exception as e:
          print(f"Error plotting normalized barplot for {col_name} in {df_name}: {e}")
-         plt.close()
-         return
-
+         plt.close(); return # Close figure on error
     plt.suptitle(f'Distribution Analysis for: {col_name} in {df_name}', fontsize=16, y=1.02)
     plt.tight_layout(rect=[0, 0, 1, 0.98])
     plt.show()
 
 # --- Helper Function for Comparing Discrete Distributions ---
-def compare_discrete_distributions(dataframes, col_name, rotation=45, max_categories=40, fixed_width=18): # Increased default max_categories and added fixed_width
+def compare_discrete_distributions(dataframes, col_name, rotation=45, max_categories=40, fixed_width=18):
     """Compares normalized distributions of a discrete column across dataframes with fixed width."""
     comparison_data = []
     all_categories = set()
     valid_dfs = {}
-
     for name, df in dataframes.items():
         if col_name in df.columns and not df[col_name].isnull().all():
             df_copy = df[[col_name]].copy()
@@ -107,14 +94,11 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
                 comparison_data.append({'DataFrame': name, 'Category': category, 'Proportion': proportion})
         else:
             print(f"Warning: Column '{col_name}' not found or all NaN in DataFrame '{name}'. Skipping comparison for this DF.")
-
     if not comparison_data:
         print(f"Column '{col_name}' not found or all NaN in any provided dataframe for comparison.")
         return
-
     comparison_df = pd.DataFrame(comparison_data)
     category_importance = comparison_df.groupby('Category')['Proportion'].mean().sort_values(ascending=False)
-
     if len(all_categories) > max_categories:
         top_categories = category_importance.nlargest(max_categories).index
         comparison_df_filtered = comparison_df[comparison_df['Category'].isin(top_categories)]
@@ -124,15 +108,10 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
         comparison_df_filtered = comparison_df
         plot_title_suffix = ''
         category_order = category_importance.index
-
     if comparison_df_filtered.empty:
          print(f"Skipping comparison plot for '{col_name}': No data remains after filtering top categories.")
          return
-
-    # --- USE FIXED WIDTH ---
-    # Adjust height slightly if needed for legend space
     plt.figure(figsize=(fixed_width, 7))
-
     try:
         sns.barplot(x='Category', y='Proportion', hue='DataFrame', data=comparison_df_filtered,
                     order=category_order, palette='viridis')
@@ -141,12 +120,11 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
         plt.ylabel('Proportion')
         plt.xticks(rotation=rotation, ha='right')
         plt.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout(rect=[0, 0, 0.9, 1]) # Adjust layout for legend
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
         plt.show()
     except Exception as e:
          print(f"Error plotting comparison barplot for {col_name}: {e}")
          plt.close()
-
 
 # --- Main EDA Function ---
 def comprehensive_nlp_eda(
@@ -160,8 +138,10 @@ def comprehensive_nlp_eda(
     oov_reference_df_name='train',
     high_dpi=150,
     label_rotation=45,
-    max_categories_plot=40, # Default max categories increased
-    plot_width=18 # Default fixed plot width
+    max_categories_plot=40,
+    plot_width=18,
+    year_bucket_threshold=15, # Threshold to start bucketing years
+    year_bucket_size=2 # Default size for year buckets (e.g., 2 means 2020-2021, 2022-2023)
 ):
     """
     Performs comprehensive EDA for multiclass NLP classification on multiple dataframes.
@@ -179,13 +159,15 @@ def comprehensive_nlp_eda(
         label_rotation (int): Rotation angle for x-axis labels in plots.
         max_categories_plot (int): Maximum number of categories to display in discrete plots.
         plot_width (int): Fixed width for most plots displaying categories.
+        year_bucket_threshold (int): Number of unique years above which bucketing is applied.
+        year_bucket_size (int): Size of year buckets when applied.
     """
     # --- Setup ---
-    plt.rcParams['figure.dpi'] = high_dpi # Update DPI setting
+    plt.rcParams['figure.dpi'] = high_dpi
     print("="*80)
     print("Comprehensive NLP EDA Report")
     print("="*80)
-    target_dfs = {} # To store DFs with target column later
+    target_dfs = {}
 
     # --- 1. Basic Information ---
     print("\n--- 1. Basic Information ---")
@@ -197,32 +179,28 @@ def comprehensive_nlp_eda(
         print("\nMissing Value Counts:")
         missing_counts = df.isnull().sum()
         missing_percent = (df.isnull().sum() / len(df)) * 100
-        missing_df = pd.DataFrame({'Count': missing_counts, 'Percentage': missing_percent.round(2)}) # Round percentage here
+        missing_df = pd.DataFrame({'Count': missing_counts, 'Percentage': missing_percent.round(2)})
         print(missing_df[missing_df['Count'] > 0].sort_values('Count', ascending=False))
-
         numerical_cols = df.select_dtypes(include=np.number).columns.tolist()
         if numerical_cols:
             print(f"\nDescriptive Statistics for Numerical Columns ({name}):")
             print(df[numerical_cols].describe())
         else:
              print("\nNo numerical columns found for descriptive statistics.")
-
         if target_col in df.columns:
             print(f"\nTarget Variable ('{target_col}') Distribution ({name}):")
             target_value_counts = df[target_col].value_counts()
             target_value_counts_norm = df[target_col].value_counts(normalize=True)
             target_dist_df = pd.DataFrame({'Count': target_value_counts, 'Proportion': target_value_counts_norm.round(4)})
             print(target_dist_df)
-            if not df[target_col].isnull().all(): # Ensure target has non-NA values
-                 target_dfs[name] = df # Store for later analysis
+            if not df[target_col].isnull().all():
+                 target_dfs[name] = df
         else:
             print(f"\nTarget Variable ('{target_col}') not found in {name}.")
-
 
     # --- 2. Metadata Analysis: Discrete Columns ---
     print("\n" + "="*80)
     print("--- 2. Metadata Analysis: Discrete Columns ---")
-
     # 2a. Target Column Analysis
     print(f"\n--- Target Column ('{target_col}') Analysis ---")
     if target_dfs:
@@ -231,7 +209,6 @@ def comprehensive_nlp_eda(
         compare_discrete_distributions(target_dfs, target_col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
     else:
         print(f"Target column '{target_col}' not found or all NaN in any dataframe for analysis.")
-
     # 2b. Common Discrete Metadata Analysis
     print("\n--- Common Discrete Metadata Analysis ---")
     for col in common_meta_discrete:
@@ -242,7 +219,6 @@ def comprehensive_nlp_eda(
             else:
                  print(f"Column '{col}' not found in DataFrame '{name}'.")
         compare_discrete_distributions(dataframes, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
-
     # 2c. Specific Discrete Metadata Analysis
     print("\n--- Specific Discrete Metadata Analysis ---")
     for col in specific_meta_discrete:
@@ -259,18 +235,14 @@ def comprehensive_nlp_eda(
         else:
             print(f"Column '{col}' not found in any relevant dataframe (e.g., OOT, Prod).")
 
-
     # --- 3. Metadata Analysis: Continuous Columns ---
     print("\n" + "="*80)
     print("--- 3. Metadata Analysis: Continuous Columns ---")
-
     for col in common_meta_continuous:
         print(f"\nAnalyzing: {col}")
-
-        # Individual Distributions (Histogram/KDE) - Width fixed implicitly by default rcParams unless overridden
+        # Individual Distributions (Histogram/KDE)
         num_dfs_with_col = sum(1 for df in dataframes.values() if col in df.columns and not df[col].isnull().all())
         if num_dfs_with_col > 0:
-            # Keep default width here, height adjusts
             plt.figure(figsize=(12, 5 * num_dfs_with_col))
             plot_index = 1
             for name, df in dataframes.items():
@@ -278,89 +250,52 @@ def comprehensive_nlp_eda(
                     plt.subplot(num_dfs_with_col, 1, plot_index)
                     sns.histplot(df[col], kde=True, bins=50)
                     plt.title(f'{name}: Distribution of {col}')
-                    plt.xlabel(col)
-                    plt.ylabel('Frequency')
-                    # Use log scale for token counts if highly skewed? Optional.
-                    # if col == 'number of tokens' and df[col].max() / df[col].median() > 100: # Example condition
-                    #     plt.yscale('log')
-                    #     plt.ylabel('Frequency (Log Scale)')
+                    plt.xlabel(col); plt.ylabel('Frequency')
                     plot_index += 1
-                # ... (handling for missing/all NaN columns) ...
+                elif col in df.columns and df[col].isnull().all():
+                    print(f"Column '{col}' in DataFrame '{name}' contains only NaN values. Skipping histogram.")
+                else:
+                     print(f"Column '{col}' not found in DataFrame '{name}'. Skipping histogram.")
             if plot_index > 1:
-                plt.suptitle(f'Histograms/KDE for: {col}', fontsize=16, y=1.0)
-                plt.tight_layout(rect=[0, 0, 1, 0.98])
-                plt.show()
-            else:
-                plt.close()
-        else:
-            print(f"Column '{col}' not found or all NaN in all DataFrames. Skipping histograms.")
+                plt.suptitle(f'Histograms/KDE for: {col}', fontsize=16, y=1.0); plt.tight_layout(rect=[0, 0, 1, 0.98]); plt.show()
+            else: plt.close()
+        else: print(f"Column '{col}' not found or all NaN in all DataFrames. Skipping histograms.")
 
-
-        # Comparison (Box Plots) - Keep default width? Or make slightly wider? Let's keep default.
+        # Comparison (Box Plots)
         plot_data_boxplot = []
         for name, df in dataframes.items():
              if col in df.columns and not df[col].isnull().all():
                  temp_df = df[[col]].dropna().copy()
-                 if not temp_df.empty:
-                    temp_df['DataFrame'] = name
-                    plot_data_boxplot.append(temp_df)
-
+                 if not temp_df.empty: temp_df['DataFrame'] = name; plot_data_boxplot.append(temp_df)
         if plot_data_boxplot:
-             plt.figure(figsize=(10, 6)) # Standard boxplot size seems ok
-             combined_df_boxplot = pd.concat(plot_data_boxplot, ignore_index=True)
+             plt.figure(figsize=(10, 6)); combined_df_boxplot = pd.concat(plot_data_boxplot, ignore_index=True)
              sns.boxplot(x='DataFrame', y=col, data=combined_df_boxplot, palette='viridis')
-             plt.title(f'Comparison of "{col}" Distribution Across DataFrames')
-             plt.xlabel('DataFrame')
-             plt.ylabel(col)
-             plt.show()
+             plt.title(f'Comparison of "{col}" Distribution Across DataFrames'); plt.xlabel('DataFrame'); plt.ylabel(col); plt.show()
 
-        # --- Distribution by Target Label (CHANGED TO VIOLIN PLOT) ---
+        # Distribution by Target Label (Violin Plot)
         print(f"\n--- Distribution of '{col}' by Target ('{target_col}') ---")
         target_dfs_with_col = {name: df for name, df in target_dfs.items() if col in df.columns and not df[col].isnull().all()}
         if target_dfs_with_col:
             for name, df in target_dfs_with_col.items():
-                # Ensure target column is also usable
                 if not df[target_col].isnull().all():
                     df_plot = df[[col, target_col]].dropna().copy()
-                    if df_plot.empty:
-                        print(f"Skipping violin plot for {name}: No overlapping non-NaN data for '{col}' and '{target_col}'.")
-                        continue
-
-                    df_plot[target_col] = df_plot[target_col].astype(str) # Ensure target is string for ordering
+                    if df_plot.empty: print(f"Skipping violin plot for {name}: No overlapping non-NaN data."); continue
+                    df_plot[target_col] = df_plot[target_col].astype(str)
                     target_order = sorted(df_plot[target_col].unique())
-
-                    # --- USE FIXED WIDTH ---
-                    plt.figure(figsize=(plot_width, 7)) # Use fixed width, adjust height maybe
-                    sns.violinplot(x=target_col, y=col, data=df_plot, palette='viridis', order=target_order,
-                                   scale='width', # Makes violins same width for shape comparison
-                                   inner='quartiles' # Show quartiles inside violins
-                                  )
-                    plt.title(f'{name}: Distribution of "{col}" by "{target_col}" (Violin Plot)')
-                    plt.xlabel(target_col)
-                    plt.ylabel(col)
-                    plt.xticks(rotation=label_rotation, ha='right')
-
-                    # Optional: Add log scale for skewed data like token counts
-                    # Check for non-positive values before applying log scale if using
-                    is_positive = df_plot[col] > 0
-                    if col == 'number of tokens' and is_positive.all() and (df_plot[col].max() / df_plot[col].median() > 50): # Example condition & check
+                    plt.figure(figsize=(plot_width, 7))
+                    sns.violinplot(x=target_col, y=col, data=df_plot, palette='viridis', order=target_order, scale='width', inner='quartiles')
+                    plt.title(f'{name}: Distribution of "{col}" by "{target_col}" (Violin Plot)'); plt.xlabel(target_col); plt.ylabel(col); plt.xticks(rotation=label_rotation, ha='right')
+                    # Optional Log Scale Logic
+                    is_positive = (df_plot[col] > 0) if pd.api.types.is_numeric_dtype(df_plot[col]) else pd.Series(False, index=df_plot.index)
+                    if is_positive.any() and col == 'number of tokens' and (df_plot.loc[is_positive, col].max() / df_plot.loc[is_positive, col].median() > 50):
                         plt.yscale('log')
                         plt.ylabel(f"{col} (Log Scale)")
-                        # Adjust y-axis ticks for log scale if needed
-                        # plt.gca().yaxis.set_major_formatter(mticker.ScalarFormatter())
-                        # plt.gca().yaxis.set_minor_formatter(mticker.NullFormatter())
                         print(f"Applied log scale to y-axis for {name} due to distribution skew.")
-                    elif col == 'number of tokens' and not is_positive.all():
+                    elif col == 'number of tokens' and not is_positive.all() and is_positive.any():
                          print(f"Note: Log scale not applied for {name} as '{col}' contains non-positive values.")
-
-
-                    plt.tight_layout()
-                    plt.show()
-                else:
-                    print(f"Target column '{target_col}' in DataFrame '{name}' contains only NaN values. Skipping distribution by target plot.")
-        else:
-             print(f"Could not perform analysis by target for '{col}'. Ensure '{target_col}' and '{col}' exist and are not all NaN in train/test/oot.")
-
+                    plt.tight_layout(); plt.show()
+                else: print(f"Target column '{target_col}' in DataFrame '{name}' contains only NaN values. Skipping distribution by target plot.")
+        else: print(f"Could not perform analysis by target for '{col}'. Ensure '{target_col}' and '{col}' exist and are not all NaN in train/test/oot.")
 
     # --- 4. Metadata Analysis: Datetime Columns ---
     print("\n" + "="*80)
@@ -368,323 +303,221 @@ def comprehensive_nlp_eda(
     for col in specific_meta_datetime:
          print(f"\nAnalyzing: {col}")
          dt_dfs = {}
-         # ... (Initial Check & Conversion Attempt logic remains the same) ...
+         # Initial Check & Conversion Attempt
          for name, df in dataframes.items():
              if col in df.columns and not df[col].isnull().all():
                  if pd.api.types.is_datetime64_any_dtype(df[col]):
-                     dt_dfs[name] = df.copy() # Work with a copy
+                     dt_dfs[name] = df.copy()
                  else:
-                     # ... (conversion attempt) ...
                      print(f"Attempting datetime conversion for '{col}' in DataFrame '{name}'...")
                      try:
                          df_copy = df.copy()
                          df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
-                         if not df_copy[col].isnull().all():
-                              dt_dfs[name] = df_copy
-                              # needs_conversion[name] = True # Keep track if needed elsewhere
-                              print(f"Conversion successful for '{name}:{col}'.")
-                         else:
-                              print(f"Conversion resulted in all NaNs for '{name}:{col}'. Skipping.")
-                     except Exception as e:
-                         print(f"Could not convert '{name}:{col}' to datetime: {e}. Skipping.")
-             # ... (handling for all NaN / missing column) ...
+                         if not df_copy[col].isnull().all(): dt_dfs[name] = df_copy; print(f"Conversion successful for '{name}:{col}'.")
+                         else: print(f"Conversion resulted in all NaNs for '{name}:{col}'. Skipping.")
+                     except Exception as e: print(f"Could not convert '{name}:{col}' to datetime: {e}. Skipping.")
+             elif col in df.columns and df[col].isnull().all(): print(f"Column '{col}' in DataFrame '{name}' contains only NaN values. Skipping datetime analysis.")
 
-
-         # --- Perform Analysis (CHANGED TO BAR CHART) ---
+         # Perform Analysis (Yearly or Bucketed Yearly Bar Chart)
          if dt_dfs:
              for name, df_dt in dt_dfs.items():
                   print(f"\n--- Datetime Analysis for {col} in {name} ---")
-                  df_dt['YearMonth'] = df_dt[col].dt.to_period('M')
-                  monthly_counts = df_dt['YearMonth'].value_counts().sort_index()
+                  df_dt_nonan = df_dt.dropna(subset=[col]).copy() # Work with non-NaN dates
+                  if df_dt_nonan.empty:
+                      print(f"No valid datetime values found in '{name}' for '{col}' after dropping NaNs.")
+                      continue
 
-                  if not monthly_counts.empty:
-                      # Convert PeriodIndex to string for better bar plot labeling
-                      monthly_counts.index = monthly_counts.index.astype(str)
+                  df_dt_nonan['Year'] = df_dt_nonan[col].dt.year
+                  yearly_counts = df_dt_nonan['Year'].value_counts().sort_index()
+                  unique_years = yearly_counts.index.astype(int) # Ensure years are int
 
-                      # --- USE FIXED WIDTH BAR CHART ---
+                  if not yearly_counts.empty:
+                      num_years = len(unique_years)
+                      plot_title = f'{name}: Document Count'
+                      x_label = 'Year'
+
+                      if num_years > year_bucket_threshold:
+                          print(f"Number of unique years ({num_years}) exceeds threshold ({year_bucket_threshold}). Bucketing years.")
+                          min_year, max_year = unique_years.min(), unique_years.max()
+                          # Ensure bucket size is at least 1
+                          actual_bucket_size = max(1, year_bucket_size)
+                          # Create bins. Ensure the last bin includes max_year.
+                          bins = list(range(min_year, max_year + actual_bucket_size, actual_bucket_size))
+                          # Adjust the last bin edge if it exactly equals max_year and there's more than one bin
+                          if len(bins)>1 and bins[-1] == max_year :
+                               bins[-1] = max_year + 1 # Extend slightly to ensure max_year is included in the last bucket
+                          elif len(bins)>1 and bins[-1] < max_year : # max_year might not be covered
+                               bins.append(max_year + 1)
+                          elif len(bins)==1: # Only one bin edge means all fall into one bucket if not handled
+                              bins.append(max_year + 1)
+
+                          labels = [f"{bins[i]}-{bins[i+1]-1}" for i in range(len(bins)-1)]
+                          # Handle single year spans within a bucket
+                          labels = [f"{bins[i]}" if bins[i+1]-1 == bins[i] else label for i, label in enumerate(labels)]
+
+                          df_dt_nonan['Year Bucket'] = pd.cut(df_dt_nonan['Year'], bins=bins, labels=labels, right=False, include_lowest=True)
+                          counts_to_plot = df_dt_nonan['Year Bucket'].value_counts().sort_index()
+                          plot_title += f' per {actual_bucket_size}-Year Bucket'
+                          x_label = f'{actual_bucket_size}-Year Bucket'
+                      else:
+                          counts_to_plot = yearly_counts
+                          plot_title += ' per Year'
+
+                      # Plotting
                       plt.figure(figsize=(plot_width, 6))
-                      monthly_counts.plot(kind='bar', color=sns.color_palette('viridis', len(monthly_counts)))
-                      plt.title(f'{name}: Document Count per Month ({col})')
-                      plt.xlabel('Year-Month')
+                      counts_to_plot.plot(kind='bar', color=sns.color_palette('viridis', len(counts_to_plot)))
+                      plt.title(plot_title + f' ({col})')
+                      plt.xlabel(x_label)
                       plt.ylabel('Number of Documents')
                       plt.xticks(rotation=label_rotation, ha='right')
-                      plt.grid(True, axis='y') # Keep grid on y-axis
+                      plt.grid(True, axis='y')
                       plt.tight_layout()
                       plt.show()
+
                   else:
-                       print(f"No non-NaN data points found for monthly counts in {name} after potential conversion.")
-                  # ... (Optional DayOfWeek/Hour analysis) ...
+                       print(f"No non-NaN data points found for yearly counts in {name} after potential conversion.")
          else:
              print(f"Column '{col}' not found or could not be used as datetime in any relevant dataframe.")
-
 
     # --- 5. Out-of-Vocabulary (OOV) Analysis ---
     print("\n" + "="*80)
     print("--- 5. Out-of-Vocabulary (OOV) Analysis ---")
-
     if oov_reference_df_name not in dataframes:
         print(f"Error: Reference DataFrame '{oov_reference_df_name}' not found in input.")
     else:
         ref_df = dataframes[oov_reference_df_name]
-        if text_col not in ref_df.columns:
-             print(f"Error: Text column '{text_col}' not found in reference DataFrame '{oov_reference_df_name}'.")
-        elif ref_df[text_col].isnull().all():
-             print(f"Error: Text column '{text_col}' in reference DataFrame '{oov_reference_df_name}' contains only NaN values.")
+        if text_col not in ref_df.columns: print(f"Error: Text column '{text_col}' not found in reference DataFrame '{oov_reference_df_name}'.")
+        elif ref_df[text_col].isnull().all(): print(f"Error: Text column '{text_col}' in reference DataFrame '{oov_reference_df_name}' contains only NaN values.")
         else:
             print(f"Building vocabulary from '{oov_reference_df_name}' DataFrame ('{text_col}' column)...")
-            vocab = Counter()
+            vocab_counter = Counter()
+            ref_vocab_set = set()
             total_ref_tokens = 0
-            ref_vocab_set = set() # For unique words in ref
             for text in tqdm(ref_df[text_col].dropna(), desc=f"Building Vocab ({oov_reference_df_name})"):
                 tokens = basic_tokenizer(text)
-                vocab.update(tokens)
-                ref_vocab_set.update(tokens) # Add unique tokens
-                total_ref_tokens += len(tokens)
-
-            # vocab_set remains the same as ref_vocab_set here
-            vocab_set = ref_vocab_set
+                vocab_counter.update(tokens); ref_vocab_set.update(tokens); total_ref_tokens += len(tokens)
+            vocab_set = ref_vocab_set # Use the set for OOV checks
             print(f"Vocabulary size from '{oov_reference_df_name}': {len(vocab_set)} unique tokens.")
             print(f"Total tokens in '{oov_reference_df_name}': {total_ref_tokens}")
 
             print("\nCalculating OOV percentages:")
-            oov_results = {}
-            unique_oov_results = {} # For the new metric
-
+            oov_results = {}; unique_oov_results = {}
             for name, df in dataframes.items():
-                if name == oov_reference_df_name:
-                    continue
-
+                if name == oov_reference_df_name: continue
                 if text_col not in df.columns or df[text_col].isnull().all():
-                    print(f"Warning: Skipping OOV for '{name}' (text column '{text_col}' missing or all NaN).")
-                    continue
+                    print(f"Warning: Skipping OOV for '{name}' (text column '{text_col}' missing or all NaN)."); continue
 
-                oov_count = 0
-                total_tokens = 0
-                oov_word_set = set() # Track unique OOV words in this df
-                target_word_set = set() # Track all unique words in this df
-
+                oov_count = 0; total_tokens = 0; oov_word_set = set(); target_word_set = set()
                 for text in tqdm(df[text_col].dropna(), desc=f"Calculating OOV ({name})"):
                     tokens = basic_tokenizer(text)
-                    target_word_set.update(tokens) # Add all unique words from this df
+                    target_word_set.update(tokens)
                     current_oov_tokens = [token for token in tokens if token not in vocab_set]
-                    oov_count += len(current_oov_tokens)
-                    oov_word_set.update(current_oov_tokens) # Add unique OOV words
-                    total_tokens += len(tokens)
+                    oov_count += len(current_oov_tokens); oov_word_set.update(current_oov_tokens); total_tokens += len(tokens)
 
-                # Calculate Token-based OOV%
-                if total_tokens > 0:
-                    oov_percentage = (oov_count / total_tokens) * 100
-                    oov_results[name] = oov_percentage
-                else:
-                    oov_results[name] = np.nan
+                if total_tokens > 0: oov_percentage = (oov_count / total_tokens) * 100; oov_results[name] = oov_percentage
+                else: oov_results[name] = np.nan
+                if len(target_word_set) > 0: unique_oov_percentage = (len(oov_word_set) / len(target_word_set)) * 100; unique_oov_results[name] = unique_oov_percentage
+                else: unique_oov_results[name] = np.nan
 
-                # Calculate Unique Word-based OOV%
-                if len(target_word_set) > 0:
-                    unique_oov_percentage = (len(oov_word_set) / len(target_word_set)) * 100
-                    unique_oov_results[name] = unique_oov_percentage
-                else:
-                     unique_oov_results[name] = np.nan
-
-                # Print results for the current dataframe
                 print(f"- {name}:")
-                if total_tokens > 0:
-                    print(f"  - Total Tokens: {total_tokens}")
-                    print(f"  - OOV Tokens (Count): {oov_count}")
-                    print(f"  - OOV % (Token-based): {oov_percentage:.2f}%")
-                else:
-                    print(f"  - No non-NaN text found for token-based OOV.")
-
-                if len(target_word_set) > 0:
-                    print(f"  - Total Unique Words: {len(target_word_set)}")
-                    print(f"  - OOV Unique Words (Count): {len(oov_word_set)}")
-                    print(f"  - OOV % (Unique Word-based): {unique_oov_percentage:.2f}%")
-                else:
-                    print(f"  - No non-NaN text found for unique word-based OOV.")
-
+                if pd.notna(oov_results.get(name)): print(f"  - Total Tokens: {total_tokens}\n  - OOV Tokens (Count): {oov_count}\n  - OOV % (Token-based): {oov_results[name]:.2f}%")
+                else: print(f"  - No non-NaN text found for token-based OOV.")
+                if pd.notna(unique_oov_results.get(name)): print(f"  - Total Unique Words: {len(target_word_set)}\n  - OOV Unique Words (Count): {len(oov_word_set)}\n  - OOV % (Unique Word-based): {unique_oov_results[name]:.2f}%")
+                else: print(f"  - No non-NaN text found for unique word-based OOV.")
 
             # Plot OOV percentages (Token-based)
             valid_oov_results = {k: v for k, v in oov_results.items() if pd.notna(v)}
             if valid_oov_results:
-                plt.figure(figsize=(max(6, len(valid_oov_results)*1.5), 5))
-                oov_series = pd.Series(valid_oov_results).sort_values()
+                plt.figure(figsize=(max(6, len(valid_oov_results)*1.5), 5)); oov_series = pd.Series(valid_oov_results).sort_values()
                 sns.barplot(x=oov_series.index, y=oov_series.values, palette='viridis')
-                plt.title(f'OOV Percentage (Token-Based vs. "{oov_reference_df_name}")')
-                plt.xlabel('DataFrame')
-                plt.ylabel('OOV Percentage (%)')
-                plt.xticks(rotation=label_rotation, ha='right')
-                plt.tight_layout()
-                plt.show()
-
+                plt.title(f'OOV Percentage (Token-Based vs. "{oov_reference_df_name}")'); plt.xlabel('DataFrame'); plt.ylabel('OOV Percentage (%)')
+                plt.xticks(rotation=label_rotation, ha='right'); plt.tight_layout(); plt.show()
             # Plot OOV percentages (Unique Word-based)
             valid_unique_oov_results = {k: v for k, v in unique_oov_results.items() if pd.notna(v)}
             if valid_unique_oov_results:
-                 plt.figure(figsize=(max(6, len(valid_unique_oov_results)*1.5), 5))
-                 unique_oov_series = pd.Series(valid_unique_oov_results).sort_values()
-                 sns.barplot(x=unique_oov_series.index, y=unique_oov_series.values, palette='magma') # Different palette
-                 plt.title(f'OOV Percentage (Unique Word-Based vs. "{oov_reference_df_name}")')
-                 plt.xlabel('DataFrame')
-                 plt.ylabel('OOV Percentage (%)')
-                 plt.xticks(rotation=label_rotation, ha='right')
-                 plt.tight_layout()
-                 plt.show()
-
+                 plt.figure(figsize=(max(6, len(valid_unique_oov_results)*1.5), 5)); unique_oov_series = pd.Series(valid_unique_oov_results).sort_values()
+                 sns.barplot(x=unique_oov_series.index, y=unique_oov_series.values, palette='magma')
+                 plt.title(f'OOV Percentage (Unique Word-Based vs. "{oov_reference_df_name}")'); plt.xlabel('DataFrame'); plt.ylabel('OOV Percentage (%)')
+                 plt.xticks(rotation=label_rotation, ha='right'); plt.tight_layout(); plt.show()
 
     # --- 6. Cross-Feature Analysis (Examples) ---
     print("\n" + "="*80)
     print("--- 6. Cross-Feature Analysis (Examples) ---")
-
     # Example 1: First common discrete vs First common continuous
     col1_example1 = common_meta_discrete[0] if common_meta_discrete else None
     col2_example1 = common_meta_continuous[0] if common_meta_continuous else None
-
     if col1_example1 and col2_example1:
         print(f"\n--- Analyzing Relationship: '{col1_example1}' vs '{col2_example1}' ---")
         cross_feature_data_ex1 = []
-        # ... (data preparation logic remains the same) ...
         for name, df in dataframes.items():
             if col1_example1 in df.columns and col2_example1 in df.columns:
                  if not df[col1_example1].isnull().all() and not df[col2_example1].isnull().all():
                      temp_df = df[[col1_example1, col2_example1]].dropna(subset=[col1_example1, col2_example1]).copy()
-                     if not temp_df.empty:
-                         temp_df['DataFrame'] = name
-                         temp_df[col1_example1] = temp_df[col1_example1].astype(str)
-                         cross_feature_data_ex1.append(temp_df)
-
+                     if not temp_df.empty: temp_df['DataFrame'] = name; temp_df[col1_example1] = temp_df[col1_example1].astype(str); cross_feature_data_ex1.append(temp_df)
         if cross_feature_data_ex1:
             combined_cross_df_ex1 = pd.concat(cross_feature_data_ex1, ignore_index=True)
             category_order_ex1 = combined_cross_df_ex1[col1_example1].value_counts().index[:max_categories_plot]
-
-            # --- USE FIXED WIDTH ---
             plt.figure(figsize=(plot_width, 7))
-            sns.boxplot(x=col1_example1, y=col2_example1, hue='DataFrame', data=combined_cross_df_ex1,
-                        palette='viridis', order=category_order_ex1)
-            plt.title(f'Relationship between "{col1_example1}" and "{col2_example1}" across DataFrames (Top {len(category_order_ex1)} Categories)')
-            plt.xlabel(col1_example1)
-            plt.ylabel(col2_example1)
-            plt.xticks(rotation=label_rotation, ha='right')
-            plt.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left')
-            plt.tight_layout(rect=[0, 0, 0.9, 1])
-            plt.show()
-        else:
-             print(f"Not enough valid data to analyze relationship between '{col1_example1}' and '{col2_example1}'.")
-    else:
-        print("\nSkipping Cross-Feature Example 1: Need at least one common discrete and one common continuous column specified.")
-
+            sns.boxplot(x=col1_example1, y=col2_example1, hue='DataFrame', data=combined_cross_df_ex1, palette='viridis', order=category_order_ex1)
+            plt.title(f'Relationship between "{col1_example1}" and "{col2_example1}" across DataFrames (Top {len(category_order_ex1)} Categories)'); plt.xlabel(col1_example1); plt.ylabel(col2_example1)
+            plt.xticks(rotation=label_rotation, ha='right'); plt.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); plt.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
+        else: print(f"Not enough valid data to analyze relationship between '{col1_example1}' and '{col2_example1}'.")
+    else: print("\nSkipping Cross-Feature Example 1: Need at least one common discrete and one common continuous column specified.")
 
     # Example 2: First common discrete vs Target (RCC)
     col1_example2 = common_meta_discrete[0] if common_meta_discrete else None
-
     if col1_example2 and target_col:
         print(f"\n--- Analyzing Relationship: '{col1_example2}' vs '{target_col}' ---")
-        target_dfs_with_col1_ex2 = {
-            name: df for name, df in target_dfs.items()
-            if col1_example2 in df.columns and not df[col1_example2].isnull().all() and not df[target_col].isnull().all()
-            }
-
+        target_dfs_with_col1_ex2 = {name: df for name, df in target_dfs.items() if col1_example2 in df.columns and not df[col1_example2].isnull().all() and not df[target_col].isnull().all()}
         if target_dfs_with_col1_ex2:
             for name, df in target_dfs_with_col1_ex2.items():
                  df_plot = df[[col1_example2, target_col]].dropna().copy()
-                 if df_plot.empty:
-                     # ...
-                     continue
-                 df_plot[col1_example2] = df_plot[col1_example2].astype(str)
-                 df_plot[target_col] = df_plot[target_col].astype(str)
-
+                 if df_plot.empty: continue
+                 df_plot[col1_example2] = df_plot[col1_example2].astype(str); df_plot[target_col] = df_plot[target_col].astype(str)
                  try:
                     cross_tab = pd.crosstab(df_plot[col1_example2], df_plot[target_col], normalize='index') * 100
                     category_order_ex2 = df_plot[col1_example2].value_counts().index[:max_categories_plot]
                     cross_tab = cross_tab.reindex(category_order_ex2).dropna(how='all')
-
-                    if cross_tab.empty:
-                        # ...
-                        continue
-
-                    # --- USE FIXED WIDTH ---
-                    cross_tab.plot(kind='bar', stacked=True, figsize=(plot_width, 7), colormap='viridis') # Use fixed width
-                    plt.title(f'{name}: Proportion of "{target_col}" within each "{col1_example2}" (Top {len(category_order_ex2)} Categories)')
-                    plt.xlabel(col1_example2)
-                    plt.ylabel('Percentage (%)')
-                    plt.xticks(rotation=label_rotation, ha='right')
-                    plt.legend(title=target_col, bbox_to_anchor=(1.05, 1), loc='upper left')
-                    plt.tight_layout(rect=[0, 0, 0.9, 1])
-                    plt.show()
-
-                 except Exception as e:
-                     print(f"Error generating stacked bar plot for {name} ({col1_example2} vs {target_col}): {e}")
-        else:
-             print(f"Not enough valid data to analyze relationship between '{col1_example2}' and '{target_col}'.")
-    # ... (Skipping messages) ...
-
+                    if cross_tab.empty: continue
+                    cross_tab.plot(kind='bar', stacked=True, figsize=(plot_width, 7), colormap='viridis')
+                    plt.title(f'{name}: Proportion of "{target_col}" within each "{col1_example2}" (Top {len(category_order_ex2)} Categories)'); plt.xlabel(col1_example2); plt.ylabel('Percentage (%)')
+                    plt.xticks(rotation=label_rotation, ha='right'); plt.legend(title=target_col, bbox_to_anchor=(1.05, 1), loc='upper left'); plt.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
+                 except Exception as e: print(f"Error generating stacked bar plot for {name} ({col1_example2} vs {target_col}): {e}")
+        else: print(f"Not enough valid data to analyze relationship between '{col1_example2}' and '{target_col}'.")
+    elif not col1_example2: print("\nSkipping Cross-Feature Example 2: Need at least one common discrete column specified.")
 
     print("\n" + "="*80)
     print("EDA Complete.")
     print("="*80)
 
 
-# --- Example Usage ---
+# --- Example Function Call ---
+# Assume you have loaded your data into pandas DataFrames:
+# train_df, test_df, oot_df, prod_df
 
-# (create_dummy_data function remains the same as before)
-def create_dummy_data(n_rows, name):
-    data = {
-        'processed_text': [' '.join(np.random.choice(['worda', 'wordb', 'wordc', 'neword', 'extrastuff', 'anothertoken', f'rare_word_{i%10}'], size=np.random.randint(10, 100))) for i in range(n_rows)],
-        'file extension': np.random.choice(['.pdf', '.docx', '.txt', '.xlsx', '.msg', None, '.PDF', '.jpg', '.png', '.zip', '.eml', '.html', '.csv'], size=n_rows, p=[0.30, 0.20, 0.08, 0.08, 0.08, 0.05, 0.05, 0.02,0.02,0.02,0.02,0.04,0.04]),
-        'number of tokens': np.random.gamma(2, 1500, size=n_rows).astype(int) + 10, # Skewed distribution
-    }
-    mask_nan_tokens = np.random.choice([True, False], size=n_rows, p=[0.03, 0.97])
-    data['number of tokens'] = np.where(mask_nan_tokens, np.nan, data['number of tokens'])
-    data['number of tokens'] = np.where(data['number of tokens'] == 0, 1, data['number of tokens']) # Ensure positive for log scale
+# Example: Load dummy dataframes (replace with your actual loading)
+# You would typically load from CSV, database, etc. e.g.,
+# train_df = pd.read_csv('train.csv')
+# test_df = pd.read_csv('test.csv')
+# oot_df = pd.read_csv('oot.csv')
+# prod_df = pd.read_csv('prod.csv', parse_dates=['FileModifiedTime']) # Example parsing dates on load
+# Ensure 'FileModifiedTime' is datetime if not parsed on load:
+# oot_df['FileModifiedTime'] = pd.to_datetime(oot_df['FileModifiedTime'], errors='coerce')
+# prod_df['FileModifiedTime'] = pd.to_datetime(prod_df['FileModifiedTime'], errors='coerce')
 
-    data['token bucket'] = pd.cut(data['number of tokens'], bins=[0, 100, 500, 1000, 5000, 10000, np.inf], labels=['0-100', '101-500', '501-1000', '1001-5000', '5001-10000', '10000+'], right=False)
-
-    if name in ['train', 'test', 'oot']:
-        # More classes for RCC demo
-        rcc_classes = [f'Class{chr(65+i)}' for i in range(10)] + ['ClassK_rare', 'ClassL_rare']
-        rcc_probs = [0.20, 0.15, 0.10, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.10, 0.10] # Sums > 1, fixed below
-        rcc_probs = np.array(rcc_probs) / sum(rcc_probs) # Normalize probabilities
-        data['RCC'] = np.random.choice(rcc_classes, size=n_rows, p=rcc_probs)
-        mask_nan_rcc = np.random.choice([True, False], size=n_rows, p=[0.02, 0.98])
-        data['RCC'] = np.where(mask_nan_rcc, np.nan, data['RCC'])
-
-
-    if name in ['oot', 'prod']:
-        start_date = pd.to_datetime('2022-01-01')
-        end_date = pd.to_datetime('2023-12-31')
-        random_dates = start_date + pd.to_timedelta(np.random.randint(0, (end_date - start_date).days + 1, size=n_rows), unit='d')
-        random_times = pd.to_timedelta(np.random.randint(0, 24*60*60, size=n_rows), unit='s')
-        mask_nat = np.random.choice([True, False], size=n_rows, p=[0.04, 0.96])
-        data['FileModifiedTime'] = np.where(mask_nat, pd.NaT, random_dates + random_times)
-        mask_str = np.random.choice([True, False], size=n_rows, p=[0.03, 0.97])
-        data['FileModifiedTime'] = np.where(mask_str & ~mask_nat, 'Invalid Date String', data['FileModifiedTime'])
-
-        data['LOB'] = np.random.choice(['Finance', 'HR', 'Legal', 'Operations', 'Sales', 'Marketing', 'IT', None], size=n_rows, p=[0.15, 0.15, 0.15, 0.15, 0.1, 0.1, 0.1, 0.1])
-
-    df = pd.DataFrame(data)
-    num_nan_rows = int(n_rows * 0.01)
-    if num_nan_rows > 0 and len(df) > num_nan_rows:
-         nan_indices = np.random.choice(df.index, size=num_nan_rows, replace=False)
-         df.loc[nan_indices, :] = np.nan
-
-    return df
-
-# Generate DataFrames
-train_df = create_dummy_data(2500, 'train')
-test_df = create_dummy_data(2500, 'test')
-oot_df = create_dummy_data(500, 'oot')
-prod_df = create_dummy_data(5000, 'prod')
-
-# Add specific words for OOV demo
-if not train_df.empty and 'processed_text' in train_df.columns:
-    first_valid_index = train_df['processed_text'].first_valid_index()
-    if first_valid_index is not None:
-        train_df.loc[first_valid_index, 'processed_text'] = 'unique_train_word example_word ' + str(train_df.loc[first_valid_index, 'processed_text'])
-    # Add OOV words to test/oot/prod
-    for df_name, df_ in [('test', test_df), ('oot', oot_df), ('prod', prod_df)]:
-         if not df_.empty and 'processed_text' in df_.columns:
-             first_valid_idx_other = df_['processed_text'].first_valid_index()
-             if first_valid_idx_other is not None:
-                 df_.loc[first_valid_idx_other, 'processed_text'] = f'oov_word_{df_name} another_oov ' + str(df_.loc[first_valid_idx_other, 'processed_text'])
+# Create placeholder DataFrames for the example call to run without error
+# --- REPLACE THIS WITH YOUR ACTUAL DATAFRAMES ---
+placeholder_data = {'processed_text': ['text a', 'text b'], 'file extension': ['.pdf', '.docx'], 'number of tokens': [100, 200], 'token bucket': ['100-500', '100-500'], 'RCC': ['ClassA', 'ClassB']}
+placeholder_data_oot = {'processed_text': ['text c'], 'file extension': ['.txt'], 'number of tokens': [50], 'token bucket': ['0-100'], 'RCC': ['ClassA'], 'FileModifiedTime': [pd.Timestamp('2023-01-15')], 'LOB': ['Finance']}
+placeholder_data_prod = {'processed_text': ['text d'], 'file extension': ['.msg'], 'number of tokens': [1000], 'token bucket': ['501-1000'], 'FileModifiedTime': [pd.Timestamp('2022-06-10')], 'LOB': ['HR']}
+train_df = pd.DataFrame(placeholder_data)
+test_df = pd.DataFrame(placeholder_data)
+oot_df = pd.DataFrame(placeholder_data_oot)
+prod_df = pd.DataFrame(placeholder_data_prod)
+# --- END OF PLACEHOLDER DATA ---
 
 
+# Combine into the required dictionary structure
 all_dataframes = {
     'train': train_df,
     'test': test_df,
@@ -692,18 +525,29 @@ all_dataframes = {
     'prod': prod_df
 }
 
-# Run the EDA function with updated parameters
+# Define your column names (adjust if different)
+TEXT_COLUMN = 'processed_text'
+TARGET_COLUMN = 'RCC'
+COMMON_DISCRETE_COLS = ['file extension', 'token bucket']
+COMMON_CONTINUOUS_COLS = ['number of tokens']
+SPECIFIC_DISCRETE_COLS = ['LOB']
+SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
+REFERENCE_DF_NAME = 'train'
+
+# Call the comprehensive EDA function
 comprehensive_nlp_eda(
     dataframes=all_dataframes,
-    text_col='processed_text',
-    target_col='RCC',
-    common_meta_discrete=['file extension', 'token bucket'],
-    common_meta_continuous=['number of tokens'],
-    specific_meta_discrete=['LOB'],
-    specific_meta_datetime=['FileModifiedTime'],
-    oov_reference_df_name='train',
-    high_dpi=120, # Lower DPI for speed if needed
+    text_col=TEXT_COLUMN,
+    target_col=TARGET_COLUMN,
+    common_meta_discrete=COMMON_DISCRETE_COLS,
+    common_meta_continuous=COMMON_CONTINUOUS_COLS,
+    specific_meta_discrete=SPECIFIC_DISCRETE_COLS,
+    specific_meta_datetime=SPECIFIC_DATETIME_COLS,
+    oov_reference_df_name=REFERENCE_DF_NAME,
+    high_dpi=120,               # Adjust DPI if needed
     label_rotation=45,
-    max_categories_plot=40, # Allow more categories
-    plot_width=20 # Set a wider fixed width for category plots
+    max_categories_plot=40,     # Max categories to show
+    plot_width=20,              # Fixed width for category plots
+    year_bucket_threshold=15,   # Start bucketing if more than 15 unique years
+    year_bucket_size=2          # Use 2-year buckets
 )

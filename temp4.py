@@ -22,12 +22,130 @@ except ImportError:
     from sklearn.manifold import TSNE
     HAS_UMAP = False
 from scipy.sparse import vstack # To stack sparse matrices
+from sklearn.decomposition import TruncatedSVD # For t-SNE pre-processing
 
-# (Rest of the imports and helper functions remain the same)
-# ... basic_tokenizer, plot_discrete_distribution, compare_discrete_distributions, plot_top_ngrams ...
+# Suppress specific warnings if desired
+# warnings.filterwarnings('ignore', category=UserWarning)
+# warnings.filterwarnings("ignore", category=FutureWarning)
+
+# --- Plotting Configuration ---
+sns.set_style('whitegrid')
+plt.rcParams['figure.dpi'] = 150
+plt.rcParams['figure.figsize'] = (12, 6)
+
+# --- Helper Function for Basic Tokenization ---
+def basic_tokenizer(text):
+    """
+    Basic tokenizer assuming pre-processing (like punctuation removal) is done.
+    Only performs lowercasing and splitting.
+    """
+    if pd.isna(text):
+        return []
+    text = str(text).lower()
+    return text.split()
+
+# --- Helper Function for Plotting Discrete Distributions ---
+def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categories=40, fixed_width=18):
+    """Plots count and normalized count for a discrete column with fixed width."""
+    if col_name not in data.columns or data[col_name].isnull().all():
+        print(f"Skipping plot for '{col_name}' in '{df_name}': Column not found or all values are NaN.")
+        return
+    data = data.copy(); data[col_name] = data[col_name].astype(str)
+    value_counts = data[col_name].value_counts()
+    if len(value_counts) > max_categories:
+        top_categories = value_counts.nlargest(max_categories).index
+        data_filtered = data[data[col_name].isin(top_categories)]
+        plot_title_suffix = f' (Top {max_categories})'; category_order = top_categories
+    else:
+        data_filtered = data; plot_title_suffix = ''; category_order = value_counts.index
+    if data_filtered.empty: print(f"Skipping plot for '{col_name}' in '{df_name}': No data remains after filtering."); return
+    fig, axes = plt.subplots(1, 2, figsize=(fixed_width, 6))
+    try: # Count Plot
+        sns.countplot(x=col_name, data=data_filtered, order=category_order, palette='viridis', ax=axes[0])
+        axes[0].set_title(f'{df_name}: Distribution of {col_name}{plot_title_suffix}'); axes[0].set_xlabel(col_name); axes[0].set_ylabel('Count');
+        axes[0].tick_params(axis='x', rotation=rotation)
+    except Exception as e: print(f"Error plotting countplot for {col_name} in {df_name}: {e}"); plt.close(fig); return
+    try: # Normalized Count Plot
+        norm_counts_filtered = data_filtered[col_name].value_counts(normalize=True).reindex(category_order, fill_value=0)
+        sns.barplot(x=norm_counts_filtered.index, y=norm_counts_filtered.values, order=category_order, palette='viridis', ax=axes[1])
+        axes[1].set_title(f'{df_name}: Normalized Distribution of {col_name}{plot_title_suffix}'); axes[1].set_xlabel(col_name); axes[1].set_ylabel('Proportion');
+        axes[1].tick_params(axis='x', rotation=rotation)
+    except Exception as e: print(f"Error plotting normalized barplot for {col_name} in {df_name}: {e}"); plt.close(fig); return
+    fig.suptitle(f'Distribution Analysis for: {col_name} in {df_name}', fontsize=16, y=1.02); fig.tight_layout(rect=[0, 0, 1, 0.98]); plt.show()
+
+# --- Helper Function for Comparing Discrete Distributions ---
+def compare_discrete_distributions(dataframes, col_name, rotation=45, max_categories=40, fixed_width=18):
+    """Compares normalized distributions of a discrete column across dataframes with fixed width."""
+    comparison_data = []; all_categories = set(); valid_dfs = {}
+    for name, df in dataframes.items():
+        if col_name in df.columns and not df[col_name].isnull().all():
+            df_copy = df[[col_name]].copy(); df_copy[col_name] = df_copy[col_name].astype(str)
+            counts = df_copy[col_name].value_counts(normalize=True); all_categories.update(counts.index); valid_dfs[name] = df_copy
+            for category, proportion in counts.items(): comparison_data.append({'DataFrame': name, 'Category': category, 'Proportion': proportion})
+        else: print(f"Warning: Column '{col_name}' not found or all NaN in DataFrame '{name}'. Skipping.")
+    if not comparison_data: print(f"Column '{col_name}' not found or all NaN in any provided dataframe for comparison."); return
+    comparison_df = pd.DataFrame(comparison_data); category_importance = comparison_df.groupby('Category')['Proportion'].mean().sort_values(ascending=False)
+    if len(all_categories) > max_categories:
+        top_categories = category_importance.nlargest(max_categories).index
+        comparison_df_filtered = comparison_df[comparison_df['Category'].isin(top_categories)]
+        plot_title_suffix = f' (Top {max_categories} Overall)'; category_order = top_categories
+    else:
+        comparison_df_filtered = comparison_df; plot_title_suffix = ''; category_order = category_importance.index
+    if comparison_df_filtered.empty: print(f"Skipping comparison plot for '{col_name}': No data remains after filtering."); return
+    fig, ax = plt.subplots(figsize=(fixed_width, 7))
+    try:
+        sns.barplot(x='Category', y='Proportion', hue='DataFrame', data=comparison_df_filtered, order=category_order, palette='viridis', ax=ax)
+        ax.set_title(f'Comparison of Normalized "{col_name}" Distribution Across DataFrames{plot_title_suffix}')
+        ax.set_xlabel(col_name); ax.set_ylabel('Proportion'); ax.tick_params(axis='x', rotation=rotation)
+        ax.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
+    except Exception as e: print(f"Error plotting comparison barplot for {col_name}: {e}"); plt.close(fig)
 
 
-# --- Main EDA Function ---
+# --- Helper function for Top N-grams (Corrected Lowercasing) ---
+def plot_top_ngrams(corpus, title, ngram_range=(1,1), top_n=20, figsize=(10, 8), save_path=None):
+    """
+    Calculates and plots top N n-grams from a text corpus.
+    Uses CountVectorizer's default lowercasing and tokenization.
+    Optionally saves the plot instead of showing it.
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    try:
+        # Use default lowercase=True and default token pattern
+        vectorizer = CountVectorizer(ngram_range=ngram_range,
+                                     stop_words='english'
+                                     # Consider max_features if vocabulary is extremely large
+                                     # max_features=50000
+                                     )
+        X = vectorizer.fit_transform(corpus)
+        sum_words = X.sum(axis=0)
+        words_freq = sorted([(word, sum_words[0, idx]) for word, idx in vectorizer.vocabulary_.items()], key=lambda x: x[1], reverse=True)
+
+        if not words_freq:
+            print(f"No {'bigrams' if ngram_range==(2,2) else 'unigrams'} found for '{title}' (check corpus content/stop words).")
+            plt.close(fig); return
+
+        top_df = pd.DataFrame(words_freq[:top_n], columns=['Ngram', 'Frequency'])
+
+        sns.barplot(x='Frequency', y='Ngram', data=top_df, palette='viridis', ax=ax)
+        ax.set_title(title)
+
+        # --- Save or Show ---
+        if save_path:
+            try:
+                dir_name = os.path.dirname(save_path)
+                if dir_name: os.makedirs(dir_name, exist_ok=True)
+                fig.savefig(save_path, bbox_inches='tight', dpi=plt.rcParams['figure.dpi'])
+                # print(f"Saved n-gram plot to: {save_path}") # Keep print inside loop in main function
+                plt.close(fig)
+            except Exception as e_save: print(f"Error saving plot to {save_path}: {e_save}"); plt.close(fig)
+        else:
+            plt.show()
+
+    except ValueError as e: print(f"Error processing n-grams for '{title}': {e}."); plt.close(fig)
+    except Exception as e: print(f"An unexpected error occurred during n-gram plotting for '{title}': {e}"); plt.close(fig)
+
+
+# --- Main EDA Function (Corrected rotation, ha, vectorizers) ---
 def comprehensive_nlp_eda(
     dataframes, # Dictionary: {'train': train_df, 'test': test_df, 'oot': oot_df, 'prod': prod_df}
     text_col='processed_text',
@@ -37,9 +155,9 @@ def comprehensive_nlp_eda(
     specific_meta_discrete=['LOB'],
     specific_meta_datetime=['FileModifiedTime'],
     oov_reference_df_name='train',
-    base_save_path=None, # ADDED: Base path to save plots/outputs
+    base_save_path=None, # Base path to save plots/outputs
     high_dpi=150,
-    label_rotation=45,
+    label_rotation=45, # Use this consistently for direct plt.xticks calls
     max_categories_plot=40,
     plot_width=18,
     year_bucket_threshold=15,
@@ -55,6 +173,7 @@ def comprehensive_nlp_eda(
     (Args description mostly same, added base_save_path)
     Args:
         ... (previous args) ...
+        label_rotation (int): Rotation angle for x-axis labels in plots.
         base_save_path (str, optional): Base directory path to save specific outputs (like n-grams per class).
                                          If None, these outputs are not saved.
         ... (remaining args) ...
@@ -64,9 +183,8 @@ def comprehensive_nlp_eda(
     print("="*80); print("Comprehensive NLP EDA Report"); print("="*80)
     target_dfs = {}
 
-    # --- Sections 1 to 6 ---
-    # (Code remains the same as the previous version)
-    # ... (Basic Info, Discrete Meta, Continuous Meta, Datetime Meta, OOV, Cross-Feature) ...
+    # --- 1. Basic Information ---
+    # (No changes)
     print("\n--- 1. Basic Information ---")
     for name, df in dataframes.items():
         print(f"\n--- DataFrame: {name} ---"); print(f"Shape: {df.shape}")
@@ -85,6 +203,9 @@ def comprehensive_nlp_eda(
             print(target_dist_df);
             if not df[target_col].isnull().all(): target_dfs[name] = df
         else: print(f"\nTarget Variable ('{target_col}') not found in {name}.")
+
+    # --- 2. Metadata Analysis: Discrete Columns ---
+    # (No changes, uses helpers with 'rotation' param)
     print("\n" + "="*80); print("--- 2. Metadata Analysis: Discrete Columns ---")
     print(f"\n--- Target Column ('{target_col}') Analysis ---")
     if target_dfs:
@@ -108,11 +229,14 @@ def comprehensive_nlp_eda(
                 compare_discrete_distributions(valid_specific_dfs, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
             else: print(f"Column '{col}' found but contains only NaN values.")
         else: print(f"Column '{col}' not found.")
+
+    # --- 3. Metadata Analysis: Continuous Columns ---
+    # (Uses showfliers=False, correct rotation)
     print("\n" + "="*80); print("--- 3. Metadata Analysis: Continuous Columns ---")
     for col in common_meta_continuous:
         print(f"\nAnalyzing: {col}")
         num_dfs_with_col = sum(1 for df in dataframes.values() if col in df.columns and not df[col].isnull().all())
-        if num_dfs_with_col > 0:
+        if num_dfs_with_col > 0: # Histogram unchanged
             plt.figure(figsize=(12, 5 * num_dfs_with_col)); plot_index = 1
             for name, df in dataframes.items():
                 if col in df.columns and not df[col].isnull().all():
@@ -123,7 +247,7 @@ def comprehensive_nlp_eda(
             if plot_index > 1: plt.suptitle(f'Histograms/KDE for: {col}', fontsize=16, y=1.0); plt.tight_layout(rect=[0, 0, 1, 0.98]); plt.show()
             else: plt.close()
         else: print(f"Column '{col}' not found or all NaN.")
-        plot_data_boxplot = []
+        plot_data_boxplot = [] # Comparison Boxplot
         for name, df in dataframes.items():
              if col in df.columns and not df[col].isnull().all():
                  temp_df = df[[col]].dropna().copy();
@@ -132,7 +256,7 @@ def comprehensive_nlp_eda(
              fig, ax = plt.subplots(figsize=(10, 6)); combined_df_boxplot = pd.concat(plot_data_boxplot, ignore_index=True)
              sns.boxplot(x='DataFrame', y=col, data=combined_df_boxplot, palette='viridis', showfliers=False, ax=ax)
              ax.set_title(f'Comparison of "{col}" Distribution (Outliers Hidden)'); ax.set_xlabel('DataFrame'); ax.set_ylabel(col); plt.show()
-        print(f"\n--- Distribution of '{col}' by Target ('{target_col}') ---")
+        print(f"\n--- Distribution of '{col}' by Target ('{target_col}') ---") # Target Boxplot
         target_dfs_with_col = {name: df for name, df in target_dfs.items() if col in df.columns and not df[col].isnull().all()}
         if target_dfs_with_col:
             for name, df in target_dfs_with_col.items():
@@ -142,7 +266,8 @@ def comprehensive_nlp_eda(
                     df_plot[target_col] = df_plot[target_col].astype(str); target_order = sorted(df_plot[target_col].unique())
                     fig, ax = plt.subplots(figsize=(plot_width, 7));
                     sns.boxplot(x=target_col, y=col, data=df_plot, palette='viridis', order=target_order, showfliers=False, ax=ax)
-                    ax.set_title(f'{name}: Dist of "{col}" by "{target_col}" (Outliers Hidden)'); ax.set_xlabel(target_col); ax.set_ylabel(col); ax.tick_params(axis='x', rotation=rotation)
+                    ax.set_title(f'{name}: Dist of "{col}" by "{target_col}" (Outliers Hidden)'); ax.set_xlabel(target_col); ax.set_ylabel(col);
+                    ax.tick_params(axis='x', rotation=label_rotation) # CORRECTED ROTATION
                     is_positive = (df_plot[col] > 0) if pd.api.types.is_numeric_dtype(df_plot[col]) else pd.Series(False, index=df_plot.index)
                     if is_positive.all() and col == 'number of tokens' and (df_plot[col].max() / df_plot[col].median() > 50):
                         ax.set_yscale('log'); ax.set_ylabel(f"{col} (Log Scale)"); print(f"Applied log scale for {name}.")
@@ -150,10 +275,13 @@ def comprehensive_nlp_eda(
                     fig.tight_layout(); plt.show()
                 else: print(f"Target column in '{name}' NaN.")
         else: print(f"Could not perform analysis by target for '{col}'.")
+
+    # --- 4. Metadata Analysis: Datetime Columns ---
+    # (Uses helper function rotation correctly)
     print("\n" + "="*80); print("--- 4. Metadata Analysis: Datetime Columns ---")
-    for col in specific_meta_datetime: # Logic unchanged
+    for col in specific_meta_datetime:
          print(f"\nAnalyzing: {col}"); dt_dfs = {}
-         for name, df in dataframes.items():
+         for name, df in dataframes.items(): # Conversion unchanged
              if col in df.columns and not df[col].isnull().all():
                  if pd.api.types.is_datetime64_any_dtype(df[col]): dt_dfs[name] = df.copy()
                  else:
@@ -164,14 +292,14 @@ def comprehensive_nlp_eda(
                          else: print(f"Conversion resulted in all NaNs. Skipping.")
                      except Exception as e: print(f"Could not convert: {e}. Skipping.")
              elif col in df.columns and df[col].isnull().all(): print(f"Column '{col}' in '{name}' NaN.")
-         if dt_dfs: # Bucketing and plotting unchanged
+         if dt_dfs: # Bucketing/plotting unchanged
              for name, df_dt in dt_dfs.items():
                   print(f"\n--- Datetime Analysis for {col} in {name} ---"); df_dt_nonan = df_dt.dropna(subset=[col]).copy()
                   if df_dt_nonan.empty: print(f"No valid datetime values."); continue
                   df_dt_nonan['Year'] = df_dt_nonan[col].dt.year; yearly_counts = df_dt_nonan['Year'].value_counts().sort_index(); unique_years = yearly_counts.index.astype(int)
                   if not yearly_counts.empty:
                       num_years = len(unique_years); plot_title = f'{name}: Document Count'; x_label = 'Year'
-                      if num_years > year_bucket_threshold:
+                      if num_years > year_bucket_threshold: # Bucketing unchanged
                           print(f"Bucketing years ({num_years} > {year_bucket_threshold})."); min_year, max_year = unique_years.min(), unique_years.max(); actual_bucket_size = max(1, year_bucket_size)
                           bins = list(range(min_year, max_year + actual_bucket_size, actual_bucket_size));
                           if len(bins)>1 and bins[-1] <= max_year : bins.append(max_year + 1)
@@ -181,9 +309,14 @@ def comprehensive_nlp_eda(
                           counts_to_plot = df_dt_nonan['Year Bucket'].value_counts().sort_index(); plot_title += f' per {actual_bucket_size}-Year Bucket'; x_label = f'{actual_bucket_size}-Year Bucket'
                       else: counts_to_plot = yearly_counts; plot_title += ' per Year'
                       fig, ax = plt.subplots(figsize=(plot_width, 6)); counts_to_plot.plot(kind='bar', color=sns.color_palette('viridis', len(counts_to_plot)), ax=ax)
-                      ax.set_title(plot_title + f' ({col})'); ax.set_xlabel(x_label); ax.set_ylabel('Number of Documents'); ax.tick_params(axis='x', rotation=rotation); ax.grid(True, axis='y'); fig.tight_layout(); plt.show()
+                      ax.set_title(plot_title + f' ({col})'); ax.set_xlabel(x_label); ax.set_ylabel('Number of Documents');
+                      ax.tick_params(axis='x', rotation=label_rotation) # CORRECTED ROTATION
+                      ax.grid(True, axis='y'); fig.tight_layout(); plt.show()
                   else: print(f"No non-NaN data points for yearly counts.")
          else: print(f"Column '{col}' not found or unusable.")
+
+    # --- 5. Out-of-Vocabulary (OOV) Analysis ---
+    # (Corrected plt.xticks rotation and removed ha)
     print("\n" + "="*80); print("--- 5. Out-of-Vocabulary (OOV) Analysis ---")
     if oov_reference_df_name not in dataframes: print(f"Error: Reference DF '{oov_reference_df_name}' not found.")
     else:
@@ -211,8 +344,19 @@ def comprehensive_nlp_eda(
                 if pd.notna(unique_oov_results.get(name)): print(f"  - OOV % (Unique): {unique_oov_results[name]:.2f}%")
                 else: print(f"  - No text for unique OOV.")
             valid_oov = {k: v for k, v in oov_results.items() if pd.notna(v)}; valid_unique_oov = {k: v for k, v in unique_oov_results.items() if pd.notna(v)}
-            if valid_oov: fig, ax = plt.subplots(figsize=(max(6, len(valid_oov)*1.5), 5)); s = pd.Series(valid_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='viridis', ax=ax); ax.set_title(f'OOV % (Token vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %'); ax.tick_params(axis='x', rotation=rotation, ha='right'); fig.tight_layout(); plt.show()
-            if valid_unique_oov: fig, ax = plt.subplots(figsize=(max(6, len(valid_unique_oov)*1.5), 5)); s = pd.Series(valid_unique_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='magma', ax=ax); ax.set_title(f'OOV % (Unique Word vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %'); ax.tick_params(axis='x', rotation=rotation, ha='right'); fig.tight_layout(); plt.show()
+            if valid_oov:
+                fig, ax = plt.subplots(figsize=(max(6, len(valid_oov)*1.5), 5)); s = pd.Series(valid_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='viridis', ax=ax); ax.set_title(f'OOV % (Token vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %');
+                # CORRECTED ROTATION
+                plt.xticks(rotation=label_rotation)
+                fig.tight_layout(); plt.show()
+            if valid_unique_oov:
+                 fig, ax = plt.subplots(figsize=(max(6, len(valid_unique_oov)*1.5), 5)); s = pd.Series(valid_unique_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='magma', ax=ax); ax.set_title(f'OOV % (Unique Word vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %');
+                 # CORRECTED ROTATION
+                 plt.xticks(rotation=label_rotation)
+                 fig.tight_layout(); plt.show()
+
+    # --- 6. Cross-Feature Analysis (Examples) ---
+    # (Corrected rotation)
     print("\n" + "="*80); print("--- 6. Cross-Feature Analysis (Examples) ---")
     col1_ex1 = common_meta_discrete[0] if common_meta_discrete else None; col2_ex1 = common_meta_continuous[0] if common_meta_continuous else None
     if col1_ex1 and col2_ex1: # Example 1 uses showfliers=False
@@ -225,7 +369,9 @@ def comprehensive_nlp_eda(
         if data:
             cdf = pd.concat(data, ignore_index=True); order = cdf[col1_ex1].value_counts().index[:max_categories_plot]
             fig, ax = plt.subplots(figsize=(plot_width, 7)); sns.boxplot(x=col1_ex1, y=col2_ex1, hue='DataFrame', data=cdf, palette='viridis', order=order, showfliers=False, ax=ax)
-            ax.set_title(f'Relationship: "{col1_ex1}" vs "{col2_ex1}" (Outliers Hidden)'); ax.set_xlabel(col1_ex1); ax.set_ylabel(col2_ex1); ax.tick_params(axis='x', rotation=rotation); ax.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
+            ax.set_title(f'Relationship: "{col1_ex1}" vs "{col2_ex1}" (Outliers Hidden)'); ax.set_xlabel(col1_ex1); ax.set_ylabel(col2_ex1);
+            ax.tick_params(axis='x', rotation=label_rotation) # CORRECTED ROTATION
+            ax.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
         else: print(f"Not enough data.")
     else: print("\nSkipping Cross-Feature Ex1.")
     col1_ex2 = common_meta_discrete[0] if common_meta_discrete else None
@@ -240,16 +386,19 @@ def comprehensive_nlp_eda(
                  try:
                     ct = pd.crosstab(dfp[col1_ex2], dfp[target_col], normalize='index') * 100; order = dfp[col1_ex2].value_counts().index[:max_categories_plot]; ct = ct.reindex(order).dropna(how='all')
                     if ct.empty: continue
-                    fig, ax = plt.subplots(figsize=(plot_width, 7)); ct.plot(kind='bar', stacked=True, colormap='viridis', ax=ax); ax.set_title(f'{name}: Proportion of "{target_col}" within "{col1_ex2}" (Top {len(order)} Cats)'); ax.set_xlabel(col1_ex2); ax.set_ylabel('%'); ax.tick_params(axis='x', rotation=rotation); ax.legend(title=target_col, bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
+                    fig, ax = plt.subplots(figsize=(plot_width, 7)); ct.plot(kind='bar', stacked=True, colormap='viridis', ax=ax); ax.set_title(f'{name}: Proportion of "{target_col}" within "{col1_ex2}" (Top {len(order)} Cats)'); ax.set_xlabel(col1_ex2); ax.set_ylabel('%');
+                    ax.tick_params(axis='x', rotation=label_rotation) # CORRECTED ROTATION
+                    ax.legend(title=target_col, bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
                  except Exception as e: print(f"Error plotting stacked bar for {name}: {e}")
         else: print(f"Not enough data.")
     elif not col1_ex2: print("\nSkipping Cross-Feature Ex2.")
 
 
     # --- 7. Text Content Analysis ---
+    # (Corrected vectorizers, added tqdm for saving)
     print("\n" + "="*80); print("--- 7. Text Content Analysis ---")
 
-    # 7a. Type-Token Ratio (TTR) - Code unchanged
+    # 7a. TTR - unchanged logic, rotation corrected in plot
     print(f"\n--- 7a. Type-Token Ratio (Lexical Diversity) ---"); ttr_results = {}
     print("\nCalculating TTR per Dataset:")
     for name, df in dataframes.items():
@@ -271,46 +420,33 @@ def comprehensive_nlp_eda(
     valid_ttr = {k: v for k,v in ttr_results.items() if pd.notna(v)}
     if valid_ttr:
         ttr_series = pd.Series(valid_ttr).sort_values(); fig, ax = plt.subplots(figsize=(max(8, len(ttr_series)*0.6), 5)); sns.barplot(x=ttr_series.index, y=ttr_series.values, palette='coolwarm', ax=ax)
-        ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison"); ax.tick_params(axis='x', rotation=60, ha='right'); fig.tight_layout(); plt.show()
+        ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison");
+        ax.tick_params(axis='x', rotation=60) # CORRECTED ROTATION
+        fig.tight_layout(); plt.show()
 
-    # --- 7b. Top N-grams per Class (MODIFIED: Added tqdm) ---
+    # 7b. Top N-grams per Class (Includes saving and tqdm) - Uses corrected helper
     print(f"\n--- 7b. Top N-grams per Class (using '{oov_reference_df_name}' data) ---")
     ref_df_ngram = dataframes.get(oov_reference_df_name)
     if ref_df_ngram is not None and target_col in ref_df_ngram.columns and text_col in ref_df_ngram.columns:
         grouped = ref_df_ngram.dropna(subset=[text_col, target_col]).groupby(target_col)
-
         print(f"Analyzing top {top_n_terms} Unigrams (saving plots if path provided)...")
-        # Added tqdm wrapper
         for class_label, group_df in tqdm(grouped, desc="Processing Unigrams per Class"):
-            corpus = group_df[text_col].dropna().astype(str)
-            save_filepath = None
-            if base_save_path:
-                safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
-                save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label)
-                save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+            corpus = group_df[text_col].dropna().astype(str); save_filepath = None
+            if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label); save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
             if not corpus.empty: plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Class: {class_label}", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath)
-            # else: print(f"Skipping Unigrams for Class '{class_label}'.") # Optionally silence this inside loop
-
         if analyze_bigrams:
             print(f"\nAnalyzing top {top_n_terms} Bigrams (saving plots if path provided)...")
-             # Added tqdm wrapper
             for class_label, group_df in tqdm(grouped, desc="Processing Bigrams per Class"):
-                 corpus = group_df[text_col].dropna().astype(str)
-                 save_filepath = None
-                 if base_save_path:
-                     safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
-                     save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label)
-                     save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+                 corpus = group_df[text_col].dropna().astype(str); save_filepath = None
+                 if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label); save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
                  if not corpus.empty: plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Class: {class_label}", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath)
-                 # else: print(f"Skipping Bigrams for Class '{class_label}'.") # Optionally silence
     else: print(f"Could not calculate N-grams per class.")
 
-    # --- 7c. Top N-grams per Dataset (MODIFIED: Show plots, no saving) ---
-    # (No tqdm needed here as it already shows plots one by one)
+    # 7c. Top N-grams per Dataset (Show plots) - Uses corrected helper
     print(f"\n--- 7c. Top N-grams per Dataset ---")
     ngram_sample_size = min(50000, max(embedding_sample_size * 5, 10000))
     print(f"Analyzing top {top_n_terms} Unigrams per Dataset (sampling large DFs to max {ngram_sample_size})...")
-    for name, df in dataframes.items(): # Logic unchanged
+    for name, df in dataframes.items():
          if text_col not in df.columns or df[text_col].isnull().all(): print(f"Skipping Unigrams for '{name}'."); continue
          df_sampled = df;
          if len(df) > ngram_sample_size: print(f"Sampling '{name}' (size {len(df)}) to {ngram_sample_size}."); df_sampled = df.sample(n=ngram_sample_size, random_state=42)
@@ -319,7 +455,7 @@ def comprehensive_nlp_eda(
          else: print(f"Skipping Unigrams for '{name}'.")
     if analyze_bigrams:
         print(f"\nAnalyzing top {top_n_terms} Bigrams per Dataset (sampling large DFs to max {ngram_sample_size})...")
-        for name, df in dataframes.items(): # Logic unchanged
+        for name, df in dataframes.items():
              if text_col not in df.columns or df[text_col].isnull().all(): print(f"Skipping Bigrams for '{name}'."); continue
              df_sampled = df;
              if len(df) > ngram_sample_size: df_sampled = df.sample(n=ngram_sample_size, random_state=42)
@@ -327,13 +463,12 @@ def comprehensive_nlp_eda(
              if not corpus.empty: plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Dataset: {name}", ngram_range=(2,2), top_n=top_n_terms, save_path=None)
              else: print(f"Skipping Bigrams for '{name}'.")
 
-    # --- 7d. Embedding Visualization (Dataset Comparison) ---
-    # (Code remains the same)
+    # 7d. Embedding Visualization (Dataset Comparison) - CORRECTED Vectorizer
     print(f"\n--- 7d. Embedding Visualization for Dataset Comparison ---")
     print(f"Using {'UMAP' if HAS_UMAP else 't-SNE'} + TF-IDF (max_feat={tfidf_max_features}). Sampling max {embedding_sample_size} docs/dataset.")
     ref_df_embed = dataframes.get(oov_reference_df_name)
     if ref_df_embed is not None and text_col in ref_df_embed.columns and not ref_df_embed[text_col].isnull().all():
-        try: # Embedding Pipeline unchanged
+        try:
             corpus_list = []; dataset_labels = []
             print("Preparing data for embedding...");
             for name, df in tqdm(dataframes.items(), desc="Sampling Datasets"):
@@ -346,7 +481,12 @@ def comprehensive_nlp_eda(
             else:
                 print(f"Combined corpus size: {len(corpus_list)}")
                 print(f"Fitting TF-IDF on '{oov_reference_df_name}'...")
-                tfidf_vectorizer = TfidfVectorizer(max_features=tfidf_max_features, lowercase=False, tokenizer=lambda text: text.split())
+                # --- CORRECTED Vectorizer Initialization ---
+                # Use default lowercase=True, default token_pattern
+                tfidf_vectorizer = TfidfVectorizer(max_features=tfidf_max_features,
+                                                   stop_words='english' # Add stop words here too
+                                                  )
+                # --- END CORRECTION ---
                 ref_corpus = ref_df_embed.dropna(subset=[text_col])[text_col].astype(str)
                 if not ref_corpus.empty: tfidf_vectorizer.fit(ref_corpus)
                 else: raise ValueError(f"Ref DF '{oov_reference_df_name}' has no text to fit TF-IDF.")
@@ -355,7 +495,7 @@ def comprehensive_nlp_eda(
                 if HAS_UMAP: reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42, metric='cosine', low_memory=True)
                 else: # t-SNE fallback unchanged
                     n_comp = 50 if tfidf_matrix.shape[1] > 50 else tfidf_matrix.shape[1]
-                    if tfidf_matrix.shape[1] > 50: print("Applying TruncatedSVD..."); from sklearn.decomposition import TruncatedSVD; svd = TruncatedSVD(n_components=n_comp, random_state=42); tfidf_reduced = svd.fit_transform(tfidf_matrix)
+                    if tfidf_matrix.shape[1] > 50: print("Applying TruncatedSVD..."); svd = TruncatedSVD(n_components=n_comp, random_state=42); tfidf_reduced = svd.fit_transform(tfidf_matrix)
                     else: tfidf_reduced = tfidf_matrix.toarray()
                     reducer = TSNE(n_components=2, random_state=42, perplexity=30, metric='cosine', init='random', learning_rate='auto')
                 embedding = reducer.fit_transform(tfidf_matrix if HAS_UMAP else tfidf_reduced)
@@ -371,7 +511,7 @@ def comprehensive_nlp_eda(
 
 
 # --- Example Function Call ---
-# (Example call structure remains the same, assumes data loading happens before)
+# (Example call structure remains the same)
 
 # Create placeholder DataFrames for the example call to run without error
 # --- REPLACE THIS WITH YOUR ACTUAL DATAFRAMES ---
@@ -397,8 +537,7 @@ COMMON_CONTINUOUS_COLS = ['number of tokens']
 SPECIFIC_DISCRETE_COLS = ['LOB']
 SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
 REFERENCE_DF_NAME = 'train'
-# --- SET YOUR SAVE PATH HERE ---
-BASE_SAVE_DIRECTORY = "./eda_outputs_saved" # Example: Save to a subfolder
+BASE_SAVE_DIRECTORY = "./eda_outputs_saved_final" # Example: Save to a subfolder
 
 # Call the comprehensive EDA function with text analysis params
 comprehensive_nlp_eda(
@@ -412,7 +551,7 @@ comprehensive_nlp_eda(
     oov_reference_df_name=REFERENCE_DF_NAME,
     base_save_path=BASE_SAVE_DIRECTORY, # Pass the save path
     high_dpi=120,
-    label_rotation=45,
+    label_rotation=45, # Pass the rotation angle
     max_categories_plot=40,
     plot_width=20,
     year_bucket_threshold=15,

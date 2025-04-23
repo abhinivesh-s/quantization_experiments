@@ -83,7 +83,9 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
             counts = df_copy[col_name].value_counts(normalize=True); all_categories.update(counts.index); valid_dfs[name] = df_copy
             for category, proportion in counts.items(): comparison_data.append({'DataFrame': name, 'Category': category, 'Proportion': proportion})
         else: print(f"Warning: Column '{col_name}' not found or all NaN in DataFrame '{name}'. Skipping.")
-    if not comparison_data: print(f"Column '{col_name}' not found or all NaN in any provided dataframe for comparison."); return
+    if not comparison_data or len(valid_dfs) < 2: # Need at least 2 dfs for comparison
+        print(f"Skipping comparison plot for '{col_name}': Not found in enough dataframes or data is all NaN.")
+        return
     comparison_df = pd.DataFrame(comparison_data); category_importance = comparison_df.groupby('Category')['Proportion'].mean().sort_values(ascending=False)
     if len(all_categories) > max_categories:
         top_categories = category_importance.nlargest(max_categories).index
@@ -95,7 +97,15 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
     fig, ax = plt.subplots(figsize=(fixed_width, 7))
     try:
         sns.barplot(x='Category', y='Proportion', hue='DataFrame', data=comparison_df_filtered, order=category_order, palette='viridis', ax=ax)
-        ax.set_title(f'Comparison of Normalized "{col_name}" Distribution Across DataFrames{plot_title_suffix}')
+        # Add title specific to compared dataframes if only two are present
+        df_names = list(dataframes.keys())
+        comp_title = f'Comparison of Normalized "{col_name}"'
+        if len(df_names) == 2:
+             comp_title += f' ({df_names[0]} vs {df_names[1]})'
+        else:
+             comp_title += f' Across DataFrames'
+
+        ax.set_title(comp_title + plot_title_suffix)
         ax.set_xlabel(col_name); ax.set_ylabel('Proportion'); ax.tick_params(axis='x', rotation=rotation, labelsize='small')
         if rotation != 0: plt.setp(ax.get_xticklabels(), ha='right', rotation_mode='anchor')
         ax.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); fig.tight_layout(rect=[0, 0, 0.9, 1]); plt.show()
@@ -105,6 +115,7 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
 # --- Helper function for Top N-grams ---
 def get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=20):
     """Calculates and returns the list of top N n-grams."""
+    if corpus.empty: return []
     try:
         vectorizer = CountVectorizer(ngram_range=ngram_range, stop_words='english')
         X = vectorizer.fit_transform(corpus)
@@ -121,6 +132,7 @@ def plot_top_ngrams(corpus, title, ngram_range=(1,1), top_n=20, figsize=(10, 8),
     Uses CountVectorizer's default lowercasing and tokenization.
     Optionally saves the plot instead of showing it.
     """
+    if corpus.empty: print(f"Skipping n-gram plot '{title}': Empty corpus."); return
     fig, ax = plt.subplots(figsize=figsize)
     try:
         vectorizer = CountVectorizer(ngram_range=ngram_range, stop_words='english')
@@ -135,6 +147,7 @@ def plot_top_ngrams(corpus, title, ngram_range=(1,1), top_n=20, figsize=(10, 8),
                 dir_name = os.path.dirname(save_path)
                 if dir_name: os.makedirs(dir_name, exist_ok=True)
                 fig.savefig(save_path, bbox_inches='tight', dpi=plt.rcParams['figure.dpi'])
+                # Keep print statement within the main loop for clarity
                 plt.close(fig)
             except Exception as e_save: print(f"Error saving plot to {save_path}: {e_save}"); plt.close(fig)
         else:
@@ -161,9 +174,13 @@ def comprehensive_nlp_eda(
     year_bucket_threshold=15,
     year_bucket_size=2,
     # Text Analysis Params
+    analyze_text_content=True, # Overall toggle for text analyses (TTR, Ngrams)
+    analyze_ngrams=False, # Specific toggle for N-gram plots and overlap calculations
     top_n_terms=20,
-    analyze_bigrams=True,
-    ngram_analysis_sample_size=25000 # ADDED: Sample size for dataset N-gram analysis
+    analyze_bigrams=True, # Included under analyze_ngrams toggle
+    ngram_analysis_sample_size=25000,
+    # Specific Comparisons
+    specific_comparisons: list[tuple[str, str]] = None # e.g., [('oot','prod')]
 ):
     """
     Performs comprehensive EDA for multiclass NLP classification on multiple dataframes.
@@ -185,9 +202,12 @@ def comprehensive_nlp_eda(
         plot_width (int): Fixed width for most plots displaying categories.
         year_bucket_threshold (int): Number of unique years above which bucketing is applied.
         year_bucket_size (int): Size of year buckets when applied.
-        top_n_terms (int): Number of top terms/n-grams to display.
-        analyze_bigrams (bool): Whether to include bigram analysis.
+        analyze_text_content (bool): Master toggle for Section 7 (TTR, N-grams).
+        analyze_ngrams (bool): Toggle specifically for N-gram plots and overlap calculations (requires analyze_text_content=True).
+        top_n_terms (int): Number of top terms/n-grams to display/compare.
+        analyze_bigrams (bool): Whether to include bigram analysis (requires analyze_ngrams=True).
         ngram_analysis_sample_size (int): Max documents per dataset sampled for dataset N-gram analysis.
+        specific_comparisons (list[tuple[str, str]], optional): List of dataframe name pairs for direct comparison. Example: [('oot', 'prod'), ('train', 'test')].
     """
     # --- Setup ---
     plt.rcParams['figure.dpi'] = high_dpi
@@ -196,6 +216,7 @@ def comprehensive_nlp_eda(
 
     # --- 1. Basic Information ---
     print("\n--- 1. Basic Information ---")
+    # ... (Code unchanged) ...
     for name, df in dataframes.items():
         print(f"\n--- DataFrame: {name} ---"); print(f"Shape: {df.shape}")
         print("\nColumns and Data Types:"); df.info()
@@ -214,8 +235,10 @@ def comprehensive_nlp_eda(
             if not df[target_col].isnull().all(): target_dfs[name] = df
         else: print(f"\nTarget Variable ('{target_col}') not found in {name}.")
 
+
     # --- 2. Metadata Analysis: Discrete Columns ---
     print("\n" + "="*80); print("--- 2. Metadata Analysis: Discrete Columns ---")
+    # ... (Code unchanged) ...
     print(f"\n--- Target Column ('{target_col}') Analysis ---")
     if target_dfs:
         for name, df in target_dfs.items(): plot_discrete_distribution(df, target_col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
@@ -239,8 +262,10 @@ def comprehensive_nlp_eda(
             else: print(f"Column '{col}' found but contains only NaN values.")
         else: print(f"Column '{col}' not found.")
 
+
     # --- 3. Metadata Analysis: Continuous Columns ---
     print("\n" + "="*80); print("--- 3. Metadata Analysis: Continuous Columns ---")
+    # ... (Code unchanged) ...
     for col in common_meta_continuous:
         print(f"\nAnalyzing: {col}")
         num_dfs_with_col = sum(1 for df in dataframes.values() if col in df.columns and not df[col].isnull().all())
@@ -284,8 +309,10 @@ def comprehensive_nlp_eda(
                 else: print(f"Target column in '{name}' NaN.")
         else: print(f"Could not perform analysis by target for '{col}'.")
 
+
     # --- 4. Metadata Analysis: Datetime Columns ---
     print("\n" + "="*80); print("--- 4. Metadata Analysis: Datetime Columns ---")
+    # ... (Code unchanged) ...
     for col in specific_meta_datetime:
          print(f"\nAnalyzing: {col}"); dt_dfs = {}
          for name, df in dataframes.items(): # Conversion unchanged
@@ -322,8 +349,10 @@ def comprehensive_nlp_eda(
                   else: print(f"No non-NaN data points for yearly counts.")
          else: print(f"Column '{col}' not found or unusable.")
 
+
     # --- 5. Out-of-Vocabulary (OOV) Analysis ---
     print("\n" + "="*80); print("--- 5. Out-of-Vocabulary (OOV) Analysis ---")
+    # ... (Code unchanged) ...
     if oov_reference_df_name not in dataframes: print(f"Error: Reference DF '{oov_reference_df_name}' not found.")
     else:
         ref_df = dataframes[oov_reference_df_name]
@@ -357,8 +386,10 @@ def comprehensive_nlp_eda(
                  fig, ax = plt.subplots(figsize=(max(6, len(valid_unique_oov)*1.5), 5)); s = pd.Series(valid_unique_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='magma', ax=ax); ax.set_title(f'OOV % (Unique Word vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %');
                  plt.xticks(rotation=label_rotation); fig.tight_layout(); plt.show()
 
+
     # --- 6. Cross-Feature Analysis (Examples) ---
     print("\n" + "="*80); print("--- 6. Cross-Feature Analysis (Examples) ---")
+    # ... (Code unchanged) ...
     col1_ex1 = common_meta_discrete[0] if common_meta_discrete else None; col2_ex1 = common_meta_continuous[0] if common_meta_continuous else None
     if col1_ex1 and col2_ex1: # Example 1
         print(f"\n--- Analyzing: '{col1_ex1}' vs '{col2_ex1}' ---"); data = []
@@ -396,108 +427,320 @@ def comprehensive_nlp_eda(
 
 
     # --- 7. Text Content Analysis ---
-    print("\n" + "="*80); print("--- 7. Text Content Analysis ---")
+    if analyze_text_content:
+        print("\n" + "="*80); print("--- 7. Text Content Analysis ---")
 
-    # --- 7a. Type-Token Ratio (TTR) ---
-    print(f"\n--- 7a. Type-Token Ratio (Lexical Diversity, Stopwords Removed) ---")
-    ttr_results = {}
-    print("\nCalculating TTR per Dataset:")
-    for name, df in dataframes.items():
-        if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping"); ttr_results[f"{name}_overall"] = np.nan; continue
-        token_lists = df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
-        all_tokens_filtered = [token for sublist in token_lists for token in sublist]
-        if not all_tokens_filtered: print(f"- {name}: Skipping (No non-stopword tokens found)"); ttr_results[f"{name}_overall"] = np.nan; continue
-        total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
-        ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
-        ttr_results[f"{name}_overall"] = ttr; print(f"- {name}: Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
-
-    print(f"\nCalculating TTR per Class ('{oov_reference_df_name}' data, Stopwords Removed):")
-    ref_df_ttr = dataframes.get(oov_reference_df_name)
-    if ref_df_ttr is not None and target_col in ref_df_ttr.columns and text_col in ref_df_ttr.columns:
-        grouped = ref_df_ttr.dropna(subset=[text_col, target_col]).groupby(target_col)
-        for class_label, group_df in grouped:
-            token_lists = group_df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
+        # --- 7a. Type-Token Ratio (TTR) ---
+        print(f"\n--- 7a. Type-Token Ratio (Lexical Diversity, Stopwords Removed) ---")
+        ttr_results = {}
+        print("\nCalculating TTR per Dataset:")
+        for name, df in dataframes.items():
+            if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping"); ttr_results[f"{name}_overall"] = np.nan; continue
+            token_lists = df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
             all_tokens_filtered = [token for sublist in token_lists for token in sublist]
-            if not all_tokens_filtered: print(f"- Class '{class_label}': Skipping (No non-stopword tokens)"); ttr_results[f"Class_{class_label}"] = np.nan; continue
+            if not all_tokens_filtered: print(f"- {name}: Skipping (No non-stopword tokens found)"); ttr_results[f"{name}_overall"] = np.nan; continue
             total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
             ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
-            ttr_results[f"Class_{class_label}"] = ttr; print(f"- Class '{class_label}': Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
-    else: print(f"Could not calculate TTR per class.")
-    valid_ttr = {k: v for k,v in ttr_results.items() if pd.notna(v)}
-    if valid_ttr:
-        ttr_series = pd.Series(valid_ttr).sort_values(); fig, ax = plt.subplots(figsize=(max(8, len(ttr_series)*0.6), 5)); sns.barplot(x=ttr_series.index, y=ttr_series.values, palette='coolwarm', ax=ax)
-        ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison (Stopwords Removed)");
-        ax.tick_params(axis='x', rotation=60); fig.tight_layout(); plt.show()
+            ttr_results[f"{name}_overall"] = ttr; print(f"- {name}: Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
 
-    # --- 7b. Top N-grams per Class (Save plots) ---
-    print(f"\n--- 7b. Top N-grams per Class (using '{oov_reference_df_name}' data) ---")
-    ref_df_ngram = dataframes.get(oov_reference_df_name)
-    ref_top_unigrams = set()
-    ref_top_bigrams = set()
-    if ref_df_ngram is not None and target_col in ref_df_ngram.columns and text_col in ref_df_ngram.columns:
-        ref_corpus_full = ref_df_ngram[text_col].dropna().astype(str)
-        if not ref_corpus_full.empty:
-            ref_top_unigrams = set(get_top_ngrams_list(ref_corpus_full, ngram_range=(1,1), top_n=top_n_terms))
-            print(f"Calculated Top {top_n_terms} reference unigrams (count: {len(ref_top_unigrams)}).")
+        print(f"\nCalculating TTR per Class ('{oov_reference_df_name}' data, Stopwords Removed):")
+        ref_df_ttr = dataframes.get(oov_reference_df_name)
+        if ref_df_ttr is not None and target_col in ref_df_ttr.columns and text_col in ref_df_ttr.columns:
+            grouped = ref_df_ttr.dropna(subset=[text_col, target_col]).groupby(target_col)
+            for class_label, group_df in grouped:
+                token_lists = group_df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
+                all_tokens_filtered = [token for sublist in token_lists for token in sublist]
+                if not all_tokens_filtered: print(f"- Class '{class_label}': Skipping (No non-stopword tokens)"); ttr_results[f"Class_{class_label}"] = np.nan; continue
+                total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
+                ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
+                ttr_results[f"Class_{class_label}"] = ttr; print(f"- Class '{class_label}': Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
+        else: print(f"Could not calculate TTR per class.")
+        valid_ttr = {k: v for k,v in ttr_results.items() if pd.notna(v)}
+        if valid_ttr:
+            ttr_series = pd.Series(valid_ttr).sort_values(); fig, ax = plt.subplots(figsize=(max(8, len(ttr_series)*0.6), 5)); sns.barplot(x=ttr_series.index, y=ttr_series.values, palette='coolwarm', ax=ax)
+            ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison (Stopwords Removed)");
+            ax.tick_params(axis='x', rotation=60); fig.tight_layout(); plt.show()
+
+
+        # --- N-Gram Analysis (Conditional) ---
+        if analyze_ngrams:
+            print("\n--- N-Gram Analysis Enabled ---")
+            # --- 7b. Top N-grams per Class (Save plots) ---
+            print(f"\n--- 7b. Top N-grams per Class (Target Column: '{target_col}') ---")
+            # Dictionary to store top ngrams per class per dataset for overlap calculation
+            # Structure: {dataset_name: {class_label: {'unigrams': {set}, 'bigrams': {set}}}}
+            top_ngrams_data = {}
+
+            datasets_to_process_class = [oov_reference_df_name] # Start with reference
+            # Add test and oot if they exist and have target
+            if 'test' in dataframes and target_col in dataframes['test'].columns:
+                datasets_to_process_class.append('test')
+            if 'oot' in dataframes and target_col in dataframes['oot'].columns:
+                datasets_to_process_class.append('oot')
+
+            print(f"Processing datasets: {', '.join(datasets_to_process_class)} for per-class N-grams...")
+
+            for dataset_name in datasets_to_process_class:
+                 df_ngram = dataframes.get(dataset_name)
+                 if df_ngram is None or target_col not in df_ngram.columns or text_col not in df_ngram.columns:
+                     print(f"Skipping per-class N-gram analysis for '{dataset_name}': Missing DF or required columns.")
+                     continue
+
+                 print(f"\nProcessing N-grams for dataset: '{dataset_name}'")
+                 top_ngrams_data[dataset_name] = {} # Initialize dataset entry
+                 grouped = df_ngram.dropna(subset=[text_col, target_col]).groupby(target_col)
+
+                 print(f"-> Analyzing top {top_n_terms} Unigrams (saving plots if path provided)...")
+                 for class_label, group_df in tqdm(grouped, desc=f"Unigrams per Class ({dataset_name})"):
+                     corpus = group_df[text_col].dropna().astype(str)
+                     if not corpus.empty:
+                         top_unigrams_list = get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=top_n_terms)
+                         if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
+                         top_ngrams_data[dataset_name][class_label]['unigrams'] = set(top_unigrams_list)
+
+                         save_filepath = None
+                         if base_save_path:
+                             safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
+                             save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
+                             save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+                             plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Class: {class_label} ({dataset_name})", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath)
+                             if save_filepath: print(f"Saved: {save_filepath}") # Print confirmation after saving attempt
+                     else:
+                         print(f"Skipping Unigrams for Class '{class_label}' in '{dataset_name}'.")
+
+
+                 if analyze_bigrams:
+                     print(f"\n-> Analyzing top {top_n_terms} Bigrams (saving plots if path provided)...")
+                     for class_label, group_df in tqdm(grouped, desc=f"Bigrams per Class ({dataset_name})"):
+                          corpus = group_df[text_col].dropna().astype(str)
+                          if not corpus.empty:
+                              top_bigrams_list = get_top_ngrams_list(corpus, ngram_range=(2,2), top_n=top_n_terms)
+                              if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
+                              top_ngrams_data[dataset_name][class_label]['bigrams'] = set(top_bigrams_list)
+
+                              save_filepath = None
+                              if base_save_path:
+                                  safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
+                                  save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
+                                  save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+                                  plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Class: {class_label} ({dataset_name})", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath)
+                                  if save_filepath: print(f"Saved: {save_filepath}") # Print confirmation after saving attempt
+                          else:
+                              print(f"Skipping Bigrams for Class '{class_label}' in '{dataset_name}'.")
+
+            # --- 7d. Class N-gram Overlap DataFrame ---
+            print(f"\n--- 7d. Class N-gram Overlap vs '{oov_reference_df_name}' ---")
+            overlap_results = []
+            ref_ngrams = top_ngrams_data.get(oov_reference_df_name, {})
+
+            if not ref_ngrams:
+                 print(f"Cannot calculate class overlap: No N-gram data found for reference dataset '{oov_reference_df_name}'.")
+            else:
+                for compare_ds_name in datasets_to_process_class:
+                    if compare_ds_name == oov_reference_df_name: continue # Don't compare ref to itself
+
+                    compare_ngrams = top_ngrams_data.get(compare_ds_name, {})
+                    if not compare_ngrams:
+                        print(f"Skipping overlap calculation for '{compare_ds_name}': No N-gram data found.")
+                        continue
+
+                    print(f"\nComparing '{compare_ds_name}' to '{oov_reference_df_name}':")
+                    # Iterate through classes found in the reference dataset for consistency
+                    for class_label, ref_class_data in ref_ngrams.items():
+                        compare_class_data = compare_ngrams.get(class_label, {})
+
+                        ref_uni = ref_class_data.get('unigrams', set())
+                        comp_uni = compare_class_data.get('unigrams', set())
+                        uni_overlap = len(ref_uni & comp_uni)
+                        uni_overlap_pct = (uni_overlap / top_n_terms) * 100 if top_n_terms > 0 else 0
+
+                        result_row = {
+                            'Comparison': f"{oov_reference_df_name} vs {compare_ds_name}",
+                            'RCC': class_label,
+                            f'Unigram Overlap (Top {top_n_terms})': f"{uni_overlap}/{top_n_terms}",
+                            f'Unigram Overlap %': f"{uni_overlap_pct:.1f}%"
+                        }
+
+                        if analyze_bigrams:
+                            ref_bi = ref_class_data.get('bigrams', set())
+                            comp_bi = compare_class_data.get('bigrams', set())
+                            bi_overlap = len(ref_bi & comp_bi)
+                            bi_overlap_pct = (bi_overlap / top_n_terms) * 100 if top_n_terms > 0 else 0
+                            result_row[f'Bigram Overlap (Top {top_n_terms})'] = f"{bi_overlap}/{top_n_terms}"
+                            result_row[f'Bigram Overlap %'] = f"{bi_overlap_pct:.1f}%"
+
+                        overlap_results.append(result_row)
+
+                if overlap_results:
+                    overlap_df = pd.DataFrame(overlap_results)
+                    # Reorder columns for clarity
+                    cols_order = ['Comparison', 'RCC']
+                    if analyze_bigrams:
+                         cols_order.extend([f'Unigram Overlap (Top {top_n_terms})', f'Unigram Overlap %', f'Bigram Overlap (Top {top_n_terms})', f'Bigram Overlap %'])
+                    else:
+                         cols_order.extend([f'Unigram Overlap (Top {top_n_terms})', f'Unigram Overlap %'])
+
+                    print(overlap_df[cols_order].to_string()) # Print full df without truncation
+                else:
+                    print("No overlap results to display.")
+
+
+            # --- 7c. Top N-grams per Dataset (Overlap calculated within loop) ---
+            # This section remains largely the same, but uses the new ngram_analysis_sample_size parameter
+            print(f"\n--- 7e. Top N-grams per Dataset & Overall Overlap with {oov_reference_df_name} ---")
+            print(f"\nAnalyzing top {top_n_terms} Unigrams per Dataset (sampling large DFs to max {ngram_analysis_sample_size})...")
+            for name, df in dataframes.items():
+                 if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping Unigrams."); continue
+                 df_sampled = df;
+                 if len(df) > ngram_analysis_sample_size: print(f"- {name}: Sampling (size {len(df)}) to {ngram_analysis_sample_size}."); df_sampled = df.sample(n=ngram_analysis_sample_size, random_state=42)
+                 corpus = df_sampled[text_col].dropna().astype(str)
+                 if not corpus.empty:
+                     plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Dataset: {name}", ngram_range=(1,1), top_n=top_n_terms, save_path=None)
+                     if name != oov_reference_df_name and ref_top_unigrams:
+                         current_top_unigrams = set(get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=top_n_terms))
+                         overlap_count = len(current_top_unigrams & ref_top_unigrams)
+                         denominator = len(current_top_unigrams) # Use actual number of top terms found
+                         overlap_percent = (overlap_count / denominator) * 100 if denominator > 0 else 0
+                         print(f"  - Overall Unigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{denominator} ({overlap_percent:.1f}%)")
+                 else: print(f"- {name}: Skipping Unigrams (No text data).")
+
             if analyze_bigrams:
-                ref_top_bigrams = set(get_top_ngrams_list(ref_corpus_full, ngram_range=(2,2), top_n=top_n_terms))
-                print(f"Calculated Top {top_n_terms} reference bigrams (count: {len(ref_top_bigrams)}).")
-        else: print("Reference dataset has no text data for N-gram analysis.")
+                print(f"\nAnalyzing top {top_n_terms} Bigrams per Dataset (sampling large DFs to max {ngram_analysis_sample_size})...")
+                for name, df in dataframes.items():
+                     if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping Bigrams."); continue
+                     df_sampled = df;
+                     if len(df) > ngram_analysis_sample_size: df_sampled = df.sample(n=ngram_analysis_sample_size, random_state=42)
+                     corpus = df_sampled[text_col].dropna().astype(str)
+                     if not corpus.empty:
+                         plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Dataset: {name}", ngram_range=(2,2), top_n=top_n_terms, save_path=None)
+                         if name != oov_reference_df_name and ref_top_bigrams:
+                             current_top_bigrams = set(get_top_ngrams_list(corpus, ngram_range=(2,2), top_n=top_n_terms))
+                             overlap_count = len(current_top_bigrams & ref_top_bigrams)
+                             denominator = len(current_top_bigrams) # Use actual number found
+                             overlap_percent = (overlap_count / denominator) * 100 if denominator > 0 else 0
+                             print(f"  - Overall Bigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{denominator} ({overlap_percent:.1f}%)")
+                     else: print(f"- {name}: Skipping Bigrams (No text data).")
+        else:
+             print("\nSkipping N-Gram Analysis (analyze_ngrams=False).")
 
-        grouped = ref_df_ngram.dropna(subset=[text_col, target_col]).groupby(target_col)
-        print(f"\nGenerating/Saving Top {top_n_terms} Unigram plots per Class...")
-        for class_label, group_df in tqdm(grouped, desc="Unigrams per Class"):
-            corpus = group_df[text_col].dropna().astype(str); save_filepath = None
-            if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label); save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
-            if not corpus.empty: plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Class: {class_label}", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath)
-        if analyze_bigrams:
-            print(f"\nGenerating/Saving Top {top_n_terms} Bigram plots per Class...")
-            for class_label, group_df in tqdm(grouped, desc="Bigrams per Class"):
-                 corpus = group_df[text_col].dropna().astype(str); save_filepath = None
-                 if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", oov_reference_df_name, safe_class_label); save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
-                 if not corpus.empty: plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Class: {class_label}", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath)
-    else: print(f"Could not calculate N-grams per class.")
+    else:
+        print("\nSkipping Text Content Analysis (analyze_text_content=False).")
 
-    # --- 7c. Top N-grams per Dataset (Show plots and Calculate Overlap) ---
-    print(f"\n--- 7c. Top N-grams per Dataset & Overlap with {oov_reference_df_name} ---")
-    # Use ngram_analysis_sample_size parameter here
-    print(f"\nAnalyzing top {top_n_terms} Unigrams per Dataset (sampling large DFs to max {ngram_analysis_sample_size})...")
-    for name, df in dataframes.items():
-         if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping Unigrams."); continue
-         df_sampled = df;
-         # Use the parameter for sampling threshold
-         if len(df) > ngram_analysis_sample_size:
-              print(f"- {name}: Sampling (size {len(df)}) to {ngram_analysis_sample_size}.");
-              df_sampled = df.sample(n=ngram_analysis_sample_size, random_state=42) # Use replace=False if sample size < len(df)
-         corpus = df_sampled[text_col].dropna().astype(str)
-         if not corpus.empty:
-             plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Dataset: {name}", ngram_range=(1,1), top_n=top_n_terms, save_path=None)
-             if name != oov_reference_df_name and ref_top_unigrams:
-                 current_top_unigrams = set(get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=top_n_terms))
-                 overlap_count = len(current_top_unigrams & ref_top_unigrams)
-                 overlap_percent = (overlap_count / top_n_terms) * 100 if top_n_terms > 0 else 0
-                 print(f"  - Unigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{len(current_top_unigrams)} ({overlap_percent:.1f}%)") # Correct denominator
-         else: print(f"- {name}: Skipping Unigrams (No text data).")
+    # --- 8. Specific Dataset Comparisons (NEW) ---
+    if specific_comparisons:
+        print("\n" + "="*80); print("--- 8. Specific Dataset Comparisons ---")
+        if not isinstance(specific_comparisons, (list, tuple)):
+            print("Warning: 'specific_comparisons' should be a list of tuples. Skipping.")
+        else:
+            for comp_pair in specific_comparisons:
+                if not isinstance(comp_pair, (list, tuple)) or len(comp_pair) != 2:
+                     print(f"Warning: Invalid item in 'specific_comparisons': {comp_pair}. Skipping.")
+                     continue
 
-    if analyze_bigrams:
-        print(f"\nAnalyzing top {top_n_terms} Bigrams per Dataset (sampling large DFs to max {ngram_analysis_sample_size})...")
-        for name, df in dataframes.items():
-             if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping Bigrams."); continue
-             df_sampled = df;
-             # Use the parameter for sampling threshold
-             if len(df) > ngram_analysis_sample_size:
-                 df_sampled = df.sample(n=ngram_analysis_sample_size, random_state=42)
-             corpus = df_sampled[text_col].dropna().astype(str)
-             if not corpus.empty:
-                 plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Dataset: {name}", ngram_range=(2,2), top_n=top_n_terms, save_path=None)
-                 if name != oov_reference_df_name and ref_top_bigrams:
-                     current_top_bigrams = set(get_top_ngrams_list(corpus, ngram_range=(2,2), top_n=top_n_terms))
-                     overlap_count = len(current_top_bigrams & ref_top_bigrams)
-                     overlap_percent = (overlap_count / top_n_terms) * 100 if top_n_terms > 0 else 0
-                     print(f"  - Bigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{len(current_top_bigrams)} ({overlap_percent:.1f}%)") # Correct denominator
-             else: print(f"- {name}: Skipping Bigrams (No text data).")
+                name1, name2 = comp_pair
+                print(f"\n--- Comparing: '{name1}' vs '{name2}' ---")
 
-    # --- REMOVED Section 7d (Embedding Visualization) ---
+                if name1 not in dataframes or name2 not in dataframes:
+                     print(f"Error: One or both dataframes ('{name1}', '{name2}') not found in input dictionary. Skipping comparison.")
+                     continue
+
+                df1 = dataframes[name1]
+                df2 = dataframes[name2]
+
+                # Find common columns (excluding text and target for direct comparison here)
+                common_cols = list(set(df1.columns) & set(df2.columns) - {text_col, target_col})
+
+                if not common_cols:
+                     print(f"No common metadata columns found between '{name1}' and '{name2}' to compare.")
+                     continue
+
+                print(f"Common columns found: {', '.join(common_cols)}")
+                comparison_dfs_dict = {name1: df1, name2: df2}
+
+                # Identify types of common columns
+                discrete_common = [col for col in common_cols if col in common_meta_discrete + specific_meta_discrete]
+                continuous_common = [col for col in common_cols if col in common_meta_continuous]
+                datetime_common = [col for col in common_cols if col in specific_meta_datetime]
+                # Catch any others potentially missed
+                other_common = [col for col in common_cols if col not in discrete_common + continuous_common + datetime_common]
+                if other_common:
+                     # Attempt to classify based on dtype for robustness
+                     print(f"Attempting to classify remaining common columns: {other_common}")
+                     for col in other_common:
+                         if pd.api.types.is_numeric_dtype(df1[col]) and pd.api.types.is_numeric_dtype(df2[col]):
+                             continuous_common.append(col)
+                         elif pd.api.types.is_object_dtype(df1[col]) or pd.api.types.is_categorical_dtype(df1[col]):
+                             # Assume object/categorical are discrete for comparison purposes
+                             discrete_common.append(col)
+                         # Add more checks if needed (e.g., for boolean)
+
+                # Compare Discrete Columns
+                if discrete_common:
+                     print(f"\nComparing Discrete Columns: {', '.join(discrete_common)}")
+                     for col in discrete_common:
+                         compare_discrete_distributions(comparison_dfs_dict, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
+
+                # Compare Continuous Columns
+                if continuous_common:
+                     print(f"\nComparing Continuous Columns: {', '.join(continuous_common)}")
+                     for col in continuous_common:
+                         plot_data_comp = []
+                         for name, df in comparison_dfs_dict.items():
+                             if col in df.columns and not df[col].isnull().all():
+                                 temp_df = df[[col]].dropna().copy()
+                                 if not temp_df.empty: temp_df['DataFrame'] = name; plot_data_comp.append(temp_df)
+                         if len(plot_data_comp) == 2: # Ensure both have data
+                             fig, ax = plt.subplots(figsize=(8, 6)); # Smaller fig for 2-way comparison
+                             combined_df_comp = pd.concat(plot_data_comp, ignore_index=True)
+                             sns.boxplot(x='DataFrame', y=col, data=combined_df_comp, palette='viridis', showfliers=False, ax=ax)
+                             ax.set_title(f'Comparison of "{col}" ({name1} vs {name2}, Outliers Hidden)'); ax.set_xlabel(''); ax.set_ylabel(col); plt.show()
+                         else:
+                              print(f"Skipping comparison for '{col}': Not enough valid data in both dataframes.")
+
+                # Compare Datetime Columns (Show side-by-side or overlaid if practical)
+                # For simplicity, we'll show individual plots here within the comparison section
+                if datetime_common:
+                     print(f"\nComparing Datetime Columns: {', '.join(datetime_common)}")
+                     for col in datetime_common:
+                          print(f"--- Analyzing Datetime: {col} ---")
+                          dt_dfs_comp = {}
+                          # Check and convert within the pair
+                          for name, df in comparison_dfs_dict.items():
+                             if col in df.columns and not df[col].isnull().all():
+                                 if pd.api.types.is_datetime64_any_dtype(df[col]): dt_dfs_comp[name] = df.copy()
+                                 else:
+                                     print(f"Attempting dt conversion for '{col}' in '{name}'...")
+                                     try:
+                                         df_copy = df.copy(); df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
+                                         if not df_copy[col].isnull().all(): dt_dfs_comp[name] = df_copy; print(f" -> Success.")
+                                         else: print(f" -> Failed (all NaNs).")
+                                     except Exception as e: print(f" -> Failed: {e}.")
+
+                          if len(dt_dfs_comp) == 2 : # Both must be valid
+                              for name, df_dt in dt_dfs_comp.items():
+                                  # Reuse yearly/bucket plot logic (could be refactored into a helper)
+                                  df_dt_nonan = df_dt.dropna(subset=[col]).copy()
+                                  if df_dt_nonan.empty: print(f"No valid '{col}' values in '{name}'."); continue
+                                  df_dt_nonan['Year'] = df_dt_nonan[col].dt.year; yearly_counts = df_dt_nonan['Year'].value_counts().sort_index(); unique_years = yearly_counts.index.astype(int)
+                                  if not yearly_counts.empty:
+                                      num_years = len(unique_years); plot_title = f'{name}: Document Count'; x_label = 'Year'
+                                      if num_years > year_bucket_threshold:
+                                          min_year, max_year = unique_years.min(), unique_years.max(); actual_bucket_size = max(1, year_bucket_size)
+                                          bins = list(range(min_year, max_year + actual_bucket_size, actual_bucket_size));
+                                          if len(bins)>1 and bins[-1] <= max_year : bins.append(max_year + 1)
+                                          elif len(bins)==1: bins.append(max_year + 1)
+                                          labels = [f"{bins[i]}-{bins[i+1]-1}" if bins[i+1]-1 > bins[i] else f"{bins[i]}" for i in range(len(bins)-1)]
+                                          df_dt_nonan['Year Bucket'] = pd.cut(df_dt_nonan['Year'], bins=bins, labels=labels, right=False, include_lowest=True)
+                                          counts_to_plot = df_dt_nonan['Year Bucket'].value_counts().sort_index(); plot_title += f' per {actual_bucket_size}-Year Bucket'; x_label = f'{actual_bucket_size}-Year Bucket'
+                                      else: counts_to_plot = yearly_counts; plot_title += ' per Year'
+                                      fig, ax = plt.subplots(figsize=(plot_width, 6)); counts_to_plot.plot(kind='bar', color=sns.color_palette('viridis', len(counts_to_plot)), ax=ax)
+                                      ax.set_title(plot_title + f' ({col})'); ax.set_xlabel(x_label); ax.set_ylabel('Number of Documents'); ax.tick_params(axis='x', rotation=label_rotation); ax.grid(True, axis='y'); fig.tight_layout(); plt.show()
+                                  else: print(f"No date data for '{name}' plot.")
+                          else:
+                               print(f"Skipping datetime comparison for '{col}': Could not process as datetime in both '{name1}' and '{name2}'.")
+    else:
+        print("\nNo specific dataset comparisons requested.")
+
 
     print("\n" + "="*80); print("EDA Complete."); print("="*80)
 
@@ -529,9 +772,12 @@ COMMON_CONTINUOUS_COLS = ['number of tokens']
 SPECIFIC_DISCRETE_COLS = ['LOB']
 SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
 REFERENCE_DF_NAME = 'train'
-BASE_SAVE_DIRECTORY = "./eda_outputs_final_v3" # Example save path
+BASE_SAVE_DIRECTORY = "./eda_outputs_final_v4" # Example save path
 
-# Call the comprehensive EDA function with new parameter
+# Example: Compare oot vs prod and train vs test
+COMPARISON_PAIRS = [('oot', 'prod'), ('train', 'test')]
+
+# Call the comprehensive EDA function with new parameters
 comprehensive_nlp_eda(
     dataframes=all_dataframes,
     text_col=TEXT_COLUMN,
@@ -548,7 +794,10 @@ comprehensive_nlp_eda(
     plot_width=20,
     year_bucket_threshold=15,
     year_bucket_size=2,
-    top_n_terms=15, # Adjusted for example
+    analyze_text_content=True, # Enable TTR
+    analyze_ngrams=True,       # Enable N-grams and overlap table
+    top_n_terms=15,
     analyze_bigrams=True,
-    ngram_analysis_sample_size=30000 # Specify the sample size for dataset n-grams
+    ngram_analysis_sample_size=500, # Lower sample size for faster example run
+    specific_comparisons=COMPARISON_PAIRS # Pass the list of pairs
 )

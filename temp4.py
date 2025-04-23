@@ -22,6 +22,9 @@ except ImportError:
     print("NLTK not found. Please install it (`pip install nltk`) and download stopwords (`nltk.download('stopwords')`) to remove stopwords from TTR calculation.")
     STOPWORDS = set() # Use an empty set if nltk is not available
 
+# Typing imports for compatibility with Python < 3.9
+from typing import List, Tuple, Optional, Dict, Any
+
 # Suppress specific warnings if desired
 # warnings.filterwarnings('ignore', category=UserWarning)
 # warnings.filterwarnings("ignore", category=FutureWarning)
@@ -83,7 +86,7 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
             counts = df_copy[col_name].value_counts(normalize=True); all_categories.update(counts.index); valid_dfs[name] = df_copy
             for category, proportion in counts.items(): comparison_data.append({'DataFrame': name, 'Category': category, 'Proportion': proportion})
         else: print(f"Warning: Column '{col_name}' not found or all NaN in DataFrame '{name}'. Skipping.")
-    if not comparison_data or len(valid_dfs) < 2: # Need at least 2 dfs for comparison
+    if not comparison_data or len(valid_dfs) < 2:
         print(f"Skipping comparison plot for '{col_name}': Not found in enough dataframes or data is all NaN.")
         return
     comparison_df = pd.DataFrame(comparison_data); category_importance = comparison_df.groupby('Category')['Proportion'].mean().sort_values(ascending=False)
@@ -97,14 +100,9 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
     fig, ax = plt.subplots(figsize=(fixed_width, 7))
     try:
         sns.barplot(x='Category', y='Proportion', hue='DataFrame', data=comparison_df_filtered, order=category_order, palette='viridis', ax=ax)
-        # Add title specific to compared dataframes if only two are present
-        df_names = list(dataframes.keys())
-        comp_title = f'Comparison of Normalized "{col_name}"'
-        if len(df_names) == 2:
-             comp_title += f' ({df_names[0]} vs {df_names[1]})'
-        else:
-             comp_title += f' Across DataFrames'
-
+        df_names = list(dataframes.keys()); comp_title = f'Comparison of Normalized "{col_name}"'
+        if len(df_names) == 2: comp_title += f' ({df_names[0]} vs {df_names[1]})'
+        else: comp_title += f' Across DataFrames'
         ax.set_title(comp_title + plot_title_suffix)
         ax.set_xlabel(col_name); ax.set_ylabel('Proportion'); ax.tick_params(axis='x', rotation=rotation, labelsize='small')
         if rotation != 0: plt.setp(ax.get_xticklabels(), ha='right', rotation_mode='anchor')
@@ -147,7 +145,6 @@ def plot_top_ngrams(corpus, title, ngram_range=(1,1), top_n=20, figsize=(10, 8),
                 dir_name = os.path.dirname(save_path)
                 if dir_name: os.makedirs(dir_name, exist_ok=True)
                 fig.savefig(save_path, bbox_inches='tight', dpi=plt.rcParams['figure.dpi'])
-                # Keep print statement within the main loop for clarity
                 plt.close(fig)
             except Exception as e_save: print(f"Error saving plot to {save_path}: {e_save}"); plt.close(fig)
         else:
@@ -156,45 +153,45 @@ def plot_top_ngrams(corpus, title, ngram_range=(1,1), top_n=20, figsize=(10, 8),
     except Exception as e: print(f"An unexpected error occurred during n-gram plotting for '{title}': {e}"); plt.close(fig)
 
 
-# --- Main EDA Function ---
+# --- Main EDA Function (Corrected Type Hinting) ---
 def comprehensive_nlp_eda(
-    dataframes, # Dictionary: {'train': train_df, 'test': test_df, 'oot': oot_df, 'prod': prod_df}
-    text_col='processed_text',
-    target_col='RCC',
-    common_meta_discrete=['file extension', 'token bucket'],
-    common_meta_continuous=['number of tokens'],
-    specific_meta_discrete=['LOB'],
-    specific_meta_datetime=['FileModifiedTime'],
-    oov_reference_df_name='train',
-    base_save_path=None,
-    high_dpi=150,
-    label_rotation=45,
-    max_categories_plot=40,
-    plot_width=18,
-    year_bucket_threshold=15,
-    year_bucket_size=2,
+    dataframes: Dict[str, pd.DataFrame], # Use Dict from typing
+    text_col: str ='processed_text',
+    target_col: str ='RCC',
+    common_meta_discrete: List[str] =['file extension', 'token bucket'], # Use List from typing
+    common_meta_continuous: List[str] =['number of tokens'],
+    specific_meta_discrete: List[str] =['LOB'],
+    specific_meta_datetime: List[str] =['FileModifiedTime'],
+    oov_reference_df_name: str ='train',
+    base_save_path: Optional[str] =None, # Use Optional from typing
+    high_dpi: int =150,
+    label_rotation: int =45,
+    max_categories_plot: int =40,
+    plot_width: int =18,
+    year_bucket_threshold: int =15,
+    year_bucket_size: int =2,
     # Text Analysis Params
-    analyze_text_content=True, # Overall toggle for text analyses (TTR, Ngrams)
-    analyze_ngrams=False, # Specific toggle for N-gram plots and overlap calculations
-    top_n_terms=20,
-    analyze_bigrams=True, # Included under analyze_ngrams toggle
-    ngram_analysis_sample_size=25000,
+    analyze_text_content: bool =True,
+    analyze_ngrams: bool =False,
+    top_n_terms: int =20,
+    analyze_bigrams: bool =True,
+    ngram_analysis_sample_size: int =25000,
     # Specific Comparisons
-    specific_comparisons: list[tuple[str, str]] = None # e.g., [('oot','prod')]
+    specific_comparisons: Optional[List[Tuple[str, str]]] = None # Use Optional, List, Tuple from typing
 ):
     """
     Performs comprehensive EDA for multiclass NLP classification on multiple dataframes.
 
     Args:
-        dataframes (dict): Dictionary mapping dataframe names (str) to pandas DataFrames.
+        dataframes (Dict[str, pd.DataFrame]): Dictionary mapping dataframe names (str) to pandas DataFrames.
         text_col (str): Name of the text column (assumed preprocessed except for lowercase).
         target_col (str): Name of the target label column.
-        common_meta_discrete (list): List of discrete metadata columns common to all dfs.
-        common_meta_continuous (list): List of continuous metadata columns common to all dfs.
-        specific_meta_discrete (list): List of discrete metadata columns specific to some dfs.
-        specific_meta_datetime (list): List of datetime metadata columns specific to some dfs.
+        common_meta_discrete (List[str]): List of discrete metadata columns common to all dfs.
+        common_meta_continuous (List[str]): List of continuous metadata columns common to all dfs.
+        specific_meta_discrete (List[str]): List of discrete metadata columns specific to some dfs.
+        specific_meta_datetime (List[str]): List of datetime metadata columns specific to some dfs.
         oov_reference_df_name (str): Name of the dataframe in the dictionary to use for reference vocabulary.
-        base_save_path (str, optional): Base directory path to save specific outputs (like n-grams per class).
+        base_save_path (Optional[str]): Base directory path to save specific outputs (like n-grams per class).
                                          If None, these outputs are not saved.
         high_dpi (int): DPI setting for matplotlib figures.
         label_rotation (int): Rotation angle for x-axis labels in plots.
@@ -207,7 +204,7 @@ def comprehensive_nlp_eda(
         top_n_terms (int): Number of top terms/n-grams to display/compare.
         analyze_bigrams (bool): Whether to include bigram analysis (requires analyze_ngrams=True).
         ngram_analysis_sample_size (int): Max documents per dataset sampled for dataset N-gram analysis.
-        specific_comparisons (list[tuple[str, str]], optional): List of dataframe name pairs for direct comparison. Example: [('oot', 'prod'), ('train', 'test')].
+        specific_comparisons (Optional[List[Tuple[str, str]]]): List of dataframe name pairs for direct comparison. Example: [('oot', 'prod'), ('train', 'test')].
     """
     # --- Setup ---
     plt.rcParams['figure.dpi'] = high_dpi
@@ -216,7 +213,6 @@ def comprehensive_nlp_eda(
 
     # --- 1. Basic Information ---
     print("\n--- 1. Basic Information ---")
-    # ... (Code unchanged) ...
     for name, df in dataframes.items():
         print(f"\n--- DataFrame: {name} ---"); print(f"Shape: {df.shape}")
         print("\nColumns and Data Types:"); df.info()
@@ -235,10 +231,8 @@ def comprehensive_nlp_eda(
             if not df[target_col].isnull().all(): target_dfs[name] = df
         else: print(f"\nTarget Variable ('{target_col}') not found in {name}.")
 
-
     # --- 2. Metadata Analysis: Discrete Columns ---
     print("\n" + "="*80); print("--- 2. Metadata Analysis: Discrete Columns ---")
-    # ... (Code unchanged) ...
     print(f"\n--- Target Column ('{target_col}') Analysis ---")
     if target_dfs:
         for name, df in target_dfs.items(): plot_discrete_distribution(df, target_col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
@@ -262,10 +256,8 @@ def comprehensive_nlp_eda(
             else: print(f"Column '{col}' found but contains only NaN values.")
         else: print(f"Column '{col}' not found.")
 
-
     # --- 3. Metadata Analysis: Continuous Columns ---
     print("\n" + "="*80); print("--- 3. Metadata Analysis: Continuous Columns ---")
-    # ... (Code unchanged) ...
     for col in common_meta_continuous:
         print(f"\nAnalyzing: {col}")
         num_dfs_with_col = sum(1 for df in dataframes.values() if col in df.columns and not df[col].isnull().all())
@@ -309,10 +301,8 @@ def comprehensive_nlp_eda(
                 else: print(f"Target column in '{name}' NaN.")
         else: print(f"Could not perform analysis by target for '{col}'.")
 
-
     # --- 4. Metadata Analysis: Datetime Columns ---
     print("\n" + "="*80); print("--- 4. Metadata Analysis: Datetime Columns ---")
-    # ... (Code unchanged) ...
     for col in specific_meta_datetime:
          print(f"\nAnalyzing: {col}"); dt_dfs = {}
          for name, df in dataframes.items(): # Conversion unchanged
@@ -349,10 +339,8 @@ def comprehensive_nlp_eda(
                   else: print(f"No non-NaN data points for yearly counts.")
          else: print(f"Column '{col}' not found or unusable.")
 
-
     # --- 5. Out-of-Vocabulary (OOV) Analysis ---
     print("\n" + "="*80); print("--- 5. Out-of-Vocabulary (OOV) Analysis ---")
-    # ... (Code unchanged) ...
     if oov_reference_df_name not in dataframes: print(f"Error: Reference DF '{oov_reference_df_name}' not found.")
     else:
         ref_df = dataframes[oov_reference_df_name]
@@ -386,10 +374,8 @@ def comprehensive_nlp_eda(
                  fig, ax = plt.subplots(figsize=(max(6, len(valid_unique_oov)*1.5), 5)); s = pd.Series(valid_unique_oov).sort_values(); sns.barplot(x=s.index, y=s.values, palette='magma', ax=ax); ax.set_title(f'OOV % (Unique Word vs. "{oov_reference_df_name}")'); ax.set_ylabel('OOV %');
                  plt.xticks(rotation=label_rotation); fig.tight_layout(); plt.show()
 
-
     # --- 6. Cross-Feature Analysis (Examples) ---
     print("\n" + "="*80); print("--- 6. Cross-Feature Analysis (Examples) ---")
-    # ... (Code unchanged) ...
     col1_ex1 = common_meta_discrete[0] if common_meta_discrete else None; col2_ex1 = common_meta_continuous[0] if common_meta_continuous else None
     if col1_ex1 and col2_ex1: # Example 1
         print(f"\n--- Analyzing: '{col1_ex1}' vs '{col2_ex1}' ---"); data = []
@@ -461,33 +447,22 @@ def comprehensive_nlp_eda(
             ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison (Stopwords Removed)");
             ax.tick_params(axis='x', rotation=60); fig.tight_layout(); plt.show()
 
-
         # --- N-Gram Analysis (Conditional) ---
         if analyze_ngrams:
             print("\n--- N-Gram Analysis Enabled ---")
             # --- 7b. Top N-grams per Class (Save plots) ---
             print(f"\n--- 7b. Top N-grams per Class (Target Column: '{target_col}') ---")
-            # Dictionary to store top ngrams per class per dataset for overlap calculation
-            # Structure: {dataset_name: {class_label: {'unigrams': {set}, 'bigrams': {set}}}}
-            top_ngrams_data = {}
+            top_ngrams_data = {} # Structure: {dataset_name: {class_label: {'unigrams': {set}, 'bigrams': {set}}}}
 
-            datasets_to_process_class = [oov_reference_df_name] # Start with reference
-            # Add test and oot if they exist and have target
-            if 'test' in dataframes and target_col in dataframes['test'].columns:
-                datasets_to_process_class.append('test')
-            if 'oot' in dataframes and target_col in dataframes['oot'].columns:
-                datasets_to_process_class.append('oot')
-
+            datasets_to_process_class = [name for name, df in dataframes.items() if target_col in df.columns and text_col in df.columns and not df[text_col].isnull().all()]
             print(f"Processing datasets: {', '.join(datasets_to_process_class)} for per-class N-grams...")
 
             for dataset_name in datasets_to_process_class:
                  df_ngram = dataframes.get(dataset_name)
-                 if df_ngram is None or target_col not in df_ngram.columns or text_col not in df_ngram.columns:
-                     print(f"Skipping per-class N-gram analysis for '{dataset_name}': Missing DF or required columns.")
-                     continue
+                 if df_ngram is None: continue # Should not happen based on above list creation
 
                  print(f"\nProcessing N-grams for dataset: '{dataset_name}'")
-                 top_ngrams_data[dataset_name] = {} # Initialize dataset entry
+                 top_ngrams_data[dataset_name] = {}
                  grouped = df_ngram.dropna(subset=[text_col, target_col]).groupby(target_col)
 
                  print(f"-> Analyzing top {top_n_terms} Unigrams (saving plots if path provided)...")
@@ -497,16 +472,14 @@ def comprehensive_nlp_eda(
                          top_unigrams_list = get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=top_n_terms)
                          if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
                          top_ngrams_data[dataset_name][class_label]['unigrams'] = set(top_unigrams_list)
-
                          save_filepath = None
                          if base_save_path:
                              safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
                              save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
                              save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+                             # Only call plotting if saving
                              plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Class: {class_label} ({dataset_name})", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath)
-                             if save_filepath: print(f"Saved: {save_filepath}") # Print confirmation after saving attempt
-                     else:
-                         print(f"Skipping Unigrams for Class '{class_label}' in '{dataset_name}'.")
+                             if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}") # Check if save succeeded
 
 
                  if analyze_bigrams:
@@ -517,47 +490,50 @@ def comprehensive_nlp_eda(
                               top_bigrams_list = get_top_ngrams_list(corpus, ngram_range=(2,2), top_n=top_n_terms)
                               if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
                               top_ngrams_data[dataset_name][class_label]['bigrams'] = set(top_bigrams_list)
-
                               save_filepath = None
                               if base_save_path:
                                   safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
                                   save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
                                   save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
+                                  # Only call plotting if saving
                                   plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Class: {class_label} ({dataset_name})", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath)
-                                  if save_filepath: print(f"Saved: {save_filepath}") # Print confirmation after saving attempt
-                          else:
-                              print(f"Skipping Bigrams for Class '{class_label}' in '{dataset_name}'.")
+                                  if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}")
+
 
             # --- 7d. Class N-gram Overlap DataFrame ---
             print(f"\n--- 7d. Class N-gram Overlap vs '{oov_reference_df_name}' ---")
             overlap_results = []
-            ref_ngrams = top_ngrams_data.get(oov_reference_df_name, {})
+            ref_ngrams_per_class = top_ngrams_data.get(oov_reference_df_name, {})
 
-            if not ref_ngrams:
+            if not ref_ngrams_per_class:
                  print(f"Cannot calculate class overlap: No N-gram data found for reference dataset '{oov_reference_df_name}'.")
             else:
-                for compare_ds_name in datasets_to_process_class:
-                    if compare_ds_name == oov_reference_df_name: continue # Don't compare ref to itself
+                # Compare only test and oot against train by default, if they were processed
+                datasets_to_compare = [ds for ds in ['test', 'oot'] if ds in top_ngrams_data]
 
-                    compare_ngrams = top_ngrams_data.get(compare_ds_name, {})
-                    if not compare_ngrams:
+                for compare_ds_name in datasets_to_compare:
+                    compare_ngrams_per_class = top_ngrams_data.get(compare_ds_name, {})
+                    if not compare_ngrams_per_class:
                         print(f"Skipping overlap calculation for '{compare_ds_name}': No N-gram data found.")
                         continue
 
-                    print(f"\nComparing '{compare_ds_name}' to '{oov_reference_df_name}':")
-                    # Iterate through classes found in the reference dataset for consistency
-                    for class_label, ref_class_data in ref_ngrams.items():
-                        compare_class_data = compare_ngrams.get(class_label, {})
+                    print(f"\nComparing '{compare_ds_name}' classes to '{oov_reference_df_name}' classes:")
+                    all_classes = sorted(list(set(ref_ngrams_per_class.keys()) | set(compare_ngrams_per_class.keys()))) # All classes present in either
+
+                    for class_label in all_classes:
+                        ref_class_data = ref_ngrams_per_class.get(class_label, {})
+                        compare_class_data = compare_ngrams_per_class.get(class_label, {})
 
                         ref_uni = ref_class_data.get('unigrams', set())
                         comp_uni = compare_class_data.get('unigrams', set())
+                        # Prevent division by zero if one set is empty
                         uni_overlap = len(ref_uni & comp_uni)
-                        uni_overlap_pct = (uni_overlap / top_n_terms) * 100 if top_n_terms > 0 else 0
+                        uni_overlap_pct = (uni_overlap / len(ref_uni)) * 100 if ref_uni else 0 # Overlap relative to reference
 
                         result_row = {
                             'Comparison': f"{oov_reference_df_name} vs {compare_ds_name}",
                             'RCC': class_label,
-                            f'Unigram Overlap (Top {top_n_terms})': f"{uni_overlap}/{top_n_terms}",
+                            f'Unigram Overlap (Top {top_n_terms})': f"{uni_overlap}/{len(ref_uni)}",
                             f'Unigram Overlap %': f"{uni_overlap_pct:.1f}%"
                         }
 
@@ -565,29 +541,26 @@ def comprehensive_nlp_eda(
                             ref_bi = ref_class_data.get('bigrams', set())
                             comp_bi = compare_class_data.get('bigrams', set())
                             bi_overlap = len(ref_bi & comp_bi)
-                            bi_overlap_pct = (bi_overlap / top_n_terms) * 100 if top_n_terms > 0 else 0
-                            result_row[f'Bigram Overlap (Top {top_n_terms})'] = f"{bi_overlap}/{top_n_terms}"
+                            bi_overlap_pct = (bi_overlap / len(ref_bi)) * 100 if ref_bi else 0 # Overlap relative to reference
+                            result_row[f'Bigram Overlap (Top {top_n_terms})'] = f"{bi_overlap}/{len(ref_bi)}"
                             result_row[f'Bigram Overlap %'] = f"{bi_overlap_pct:.1f}%"
 
                         overlap_results.append(result_row)
 
                 if overlap_results:
                     overlap_df = pd.DataFrame(overlap_results)
-                    # Reorder columns for clarity
                     cols_order = ['Comparison', 'RCC']
-                    if analyze_bigrams:
-                         cols_order.extend([f'Unigram Overlap (Top {top_n_terms})', f'Unigram Overlap %', f'Bigram Overlap (Top {top_n_terms})', f'Bigram Overlap %'])
-                    else:
-                         cols_order.extend([f'Unigram Overlap (Top {top_n_terms})', f'Unigram Overlap %'])
-
-                    print(overlap_df[cols_order].to_string()) # Print full df without truncation
+                    uni_cols = [f'Unigram Overlap (Top {top_n_terms})', f'Unigram Overlap %']
+                    bi_cols = [f'Bigram Overlap (Top {top_n_terms})', f'Bigram Overlap %'] if analyze_bigrams else []
+                    overlap_df = overlap_df[cols_order + uni_cols + bi_cols] # Ensure correct order
+                    print(overlap_df.to_string())
                 else:
                     print("No overlap results to display.")
 
 
-            # --- 7c. Top N-grams per Dataset (Overlap calculated within loop) ---
-            # This section remains largely the same, but uses the new ngram_analysis_sample_size parameter
+            # --- 7e. Top N-grams per Dataset (Overall Overlap) ---
             print(f"\n--- 7e. Top N-grams per Dataset & Overall Overlap with {oov_reference_df_name} ---")
+            # Reuse ref_top_unigrams and ref_top_bigrams calculated earlier
             print(f"\nAnalyzing top {top_n_terms} Unigrams per Dataset (sampling large DFs to max {ngram_analysis_sample_size})...")
             for name, df in dataframes.items():
                  if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping Unigrams."); continue
@@ -599,7 +572,7 @@ def comprehensive_nlp_eda(
                      if name != oov_reference_df_name and ref_top_unigrams:
                          current_top_unigrams = set(get_top_ngrams_list(corpus, ngram_range=(1,1), top_n=top_n_terms))
                          overlap_count = len(current_top_unigrams & ref_top_unigrams)
-                         denominator = len(current_top_unigrams) # Use actual number of top terms found
+                         denominator = len(current_top_unigrams)
                          overlap_percent = (overlap_count / denominator) * 100 if denominator > 0 else 0
                          print(f"  - Overall Unigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{denominator} ({overlap_percent:.1f}%)")
                  else: print(f"- {name}: Skipping Unigrams (No text data).")
@@ -616,7 +589,7 @@ def comprehensive_nlp_eda(
                          if name != oov_reference_df_name and ref_top_bigrams:
                              current_top_bigrams = set(get_top_ngrams_list(corpus, ngram_range=(2,2), top_n=top_n_terms))
                              overlap_count = len(current_top_bigrams & ref_top_bigrams)
-                             denominator = len(current_top_bigrams) # Use actual number found
+                             denominator = len(current_top_bigrams)
                              overlap_percent = (overlap_count / denominator) * 100 if denominator > 0 else 0
                              print(f"  - Overall Bigram Overlap with '{oov_reference_df_name}' Top {top_n_terms}: {overlap_count}/{denominator} ({overlap_percent:.1f}%)")
                      else: print(f"- {name}: Skipping Bigrams (No text data).")
@@ -641,7 +614,7 @@ def comprehensive_nlp_eda(
                 print(f"\n--- Comparing: '{name1}' vs '{name2}' ---")
 
                 if name1 not in dataframes or name2 not in dataframes:
-                     print(f"Error: One or both dataframes ('{name1}', '{name2}') not found in input dictionary. Skipping comparison.")
+                     print(f"Error: One or both dataframes ('{name1}', '{name2}') not found. Skipping comparison.")
                      continue
 
                 df1 = dataframes[name1]
@@ -658,21 +631,33 @@ def comprehensive_nlp_eda(
                 comparison_dfs_dict = {name1: df1, name2: df2}
 
                 # Identify types of common columns
-                discrete_common = [col for col in common_cols if col in common_meta_discrete + specific_meta_discrete]
-                continuous_common = [col for col in common_cols if col in common_meta_continuous]
-                datetime_common = [col for col in common_cols if col in specific_meta_datetime]
-                # Catch any others potentially missed
+                all_discrete_defs = common_meta_discrete + specific_meta_discrete
+                all_continuous_defs = common_meta_continuous
+                all_datetime_defs = specific_meta_datetime
+
+                discrete_common = [col for col in common_cols if col in all_discrete_defs]
+                continuous_common = [col for col in common_cols if col in all_continuous_defs]
+                datetime_common = [col for col in common_cols if col in all_datetime_defs]
                 other_common = [col for col in common_cols if col not in discrete_common + continuous_common + datetime_common]
+
                 if other_common:
-                     # Attempt to classify based on dtype for robustness
                      print(f"Attempting to classify remaining common columns: {other_common}")
                      for col in other_common:
-                         if pd.api.types.is_numeric_dtype(df1[col]) and pd.api.types.is_numeric_dtype(df2[col]):
-                             continuous_common.append(col)
-                         elif pd.api.types.is_object_dtype(df1[col]) or pd.api.types.is_categorical_dtype(df1[col]):
-                             # Assume object/categorical are discrete for comparison purposes
-                             discrete_common.append(col)
-                         # Add more checks if needed (e.g., for boolean)
+                         try: # Add try-except for safety
+                             if pd.api.types.is_numeric_dtype(df1[col]) and pd.api.types.is_numeric_dtype(df2[col]):
+                                 continuous_common.append(col)
+                                 print(f" -> Classified '{col}' as Continuous")
+                             elif pd.api.types.is_object_dtype(df1[col]) or pd.api.types.is_categorical_dtype(df1[col]):
+                                 discrete_common.append(col)
+                                 print(f" -> Classified '{col}' as Discrete (Object/Categorical)")
+                             elif pd.api.types.is_datetime64_any_dtype(df1[col]) and pd.api.types.is_datetime64_any_dtype(df2[col]):
+                                 datetime_common.append(col)
+                                 print(f" -> Classified '{col}' as Datetime")
+                             else:
+                                  print(f" -> Could not auto-classify '{col}'. Skipping comparison.")
+                         except Exception as e_classify:
+                              print(f" -> Error classifying '{col}': {e_classify}. Skipping comparison.")
+
 
                 # Compare Discrete Columns
                 if discrete_common:
@@ -690,21 +675,19 @@ def comprehensive_nlp_eda(
                                  temp_df = df[[col]].dropna().copy()
                                  if not temp_df.empty: temp_df['DataFrame'] = name; plot_data_comp.append(temp_df)
                          if len(plot_data_comp) == 2: # Ensure both have data
-                             fig, ax = plt.subplots(figsize=(8, 6)); # Smaller fig for 2-way comparison
+                             fig, ax = plt.subplots(figsize=(8, 6));
                              combined_df_comp = pd.concat(plot_data_comp, ignore_index=True)
                              sns.boxplot(x='DataFrame', y=col, data=combined_df_comp, palette='viridis', showfliers=False, ax=ax)
                              ax.set_title(f'Comparison of "{col}" ({name1} vs {name2}, Outliers Hidden)'); ax.set_xlabel(''); ax.set_ylabel(col); plt.show()
                          else:
                               print(f"Skipping comparison for '{col}': Not enough valid data in both dataframes.")
 
-                # Compare Datetime Columns (Show side-by-side or overlaid if practical)
-                # For simplicity, we'll show individual plots here within the comparison section
+                # Compare Datetime Columns (Show individual plots within comparison)
                 if datetime_common:
                      print(f"\nComparing Datetime Columns: {', '.join(datetime_common)}")
                      for col in datetime_common:
-                          print(f"--- Analyzing Datetime: {col} ---")
+                          print(f"\n--- Analyzing Datetime: {col} for {name1} vs {name2} ---")
                           dt_dfs_comp = {}
-                          # Check and convert within the pair
                           for name, df in comparison_dfs_dict.items():
                              if col in df.columns and not df[col].isnull().all():
                                  if pd.api.types.is_datetime64_any_dtype(df[col]): dt_dfs_comp[name] = df.copy()
@@ -715,10 +698,8 @@ def comprehensive_nlp_eda(
                                          if not df_copy[col].isnull().all(): dt_dfs_comp[name] = df_copy; print(f" -> Success.")
                                          else: print(f" -> Failed (all NaNs).")
                                      except Exception as e: print(f" -> Failed: {e}.")
-
-                          if len(dt_dfs_comp) == 2 : # Both must be valid
+                          if len(dt_dfs_comp) == 2 :
                               for name, df_dt in dt_dfs_comp.items():
-                                  # Reuse yearly/bucket plot logic (could be refactored into a helper)
                                   df_dt_nonan = df_dt.dropna(subset=[col]).copy()
                                   if df_dt_nonan.empty: print(f"No valid '{col}' values in '{name}'."); continue
                                   df_dt_nonan['Year'] = df_dt_nonan[col].dt.year; yearly_counts = df_dt_nonan['Year'].value_counts().sort_index(); unique_years = yearly_counts.index.astype(int)
@@ -755,14 +736,25 @@ placeholder_data_oot = {'processed_text': ['Text c oot version with apples', 'OO
 prod_texts = [f'Prod text {i} example Content for Production apples' for i in range(100)] + [f'Prod text {i} Different Words maybe oranges' for i in range(100,200)]
 placeholder_data_prod = {'processed_text': prod_texts, 'file extension': np.random.choice(['.msg', '.eml'], 200), 'number of tokens': np.random.randint(500, 2000, 200), 'token bucket': ['501-1000'] * 200, 'FileModifiedTime': pd.date_range('2022-01-01', periods=200, freq='D'), 'LOB': np.random.choice(['HR', 'Operations'], 200)}
 train_df = pd.DataFrame(placeholder_data)
-test_df = pd.DataFrame(placeholder_data).copy(); test_df['processed_text'] = ['Test text a document with apples', 'Test b about evaluation and oranges', 'Test specific Words here too maybe bananas']
+test_df = pd.DataFrame(placeholder_data).copy(); test_df['processed_text'] = ['Test text a document with apples', 'Test b about evaluation and oranges', 'Test specific Words here too maybe bananas']; test_df['LOB'] = ['Finance', 'HR', 'Finance'] # Add LOB to test for comparison demo
 oot_df = pd.DataFrame(placeholder_data_oot)
 prod_df = pd.DataFrame(placeholder_data_prod)
 oot_df['FileModifiedTime'] = pd.to_datetime(oot_df['FileModifiedTime'], errors='coerce')
 prod_df['FileModifiedTime'] = pd.to_datetime(prod_df['FileModifiedTime'], errors='coerce')
 # --- END OF PLACEHOLDER DATA ---
 
-all_dataframes = { 'train': train_df, 'test': test_df, 'oot': oot_df, 'prod': prod_df }
+# Add another dummy dataframe for multi-comparison demo
+val_df = train_df.sample(frac=0.5, random_state=1)
+val_df['processed_text'] = val_df['processed_text'] + ' validation extra word'
+
+all_dataframes = {
+    'train': train_df,
+    'val' : val_df, # Added validation set
+    'test': test_df,
+    'oot': oot_df,
+    'prod': prod_df
+}
+
 
 # --- Define parameters for the function call ---
 TEXT_COLUMN = 'processed_text'
@@ -772,10 +764,10 @@ COMMON_CONTINUOUS_COLS = ['number of tokens']
 SPECIFIC_DISCRETE_COLS = ['LOB']
 SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
 REFERENCE_DF_NAME = 'train'
-BASE_SAVE_DIRECTORY = "./eda_outputs_final_v4" # Example save path
+BASE_SAVE_DIRECTORY = "./eda_outputs_final_v5" # Example save path
 
 # Example: Compare oot vs prod and train vs test
-COMPARISON_PAIRS = [('oot', 'prod'), ('train', 'test')]
+COMPARISON_PAIRS = [('oot', 'prod'), ('train', 'test'), ('train', 'val')]
 
 # Call the comprehensive EDA function with new parameters
 comprehensive_nlp_eda(
@@ -794,10 +786,10 @@ comprehensive_nlp_eda(
     plot_width=20,
     year_bucket_threshold=15,
     year_bucket_size=2,
-    analyze_text_content=True, # Enable TTR
-    analyze_ngrams=True,       # Enable N-grams and overlap table
+    analyze_text_content=True,    # Enable Section 7
+    analyze_ngrams=True,          # Enable N-grams within Section 7
     top_n_terms=15,
     analyze_bigrams=True,
-    ngram_analysis_sample_size=500, # Lower sample size for faster example run
-    specific_comparisons=COMPARISON_PAIRS # Pass the list of pairs
+    ngram_analysis_sample_size=500, # Sample size for dataset n-grams (adjust as needed)
+    specific_comparisons=COMPARISON_PAIRS # Pass the list of specific pairs to compare
 )

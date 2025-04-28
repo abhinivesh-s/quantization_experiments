@@ -1,0 +1,245 @@
+Okay, here is a template structured for a standard Microsoft Word document. You can copy and paste this text into Word and then use Word's formatting tools (Styles for headings, Bold, Bullets, Tables) to make it look professional.
+
+(Page 1 - Title Page - Optional but Recommended)
+
+(Centered, Large Font)
+Data Ingestion Validation Report
+
+(Centered, Smaller Font)
+Project/Pipeline: [Name of the specific ETL/ELT job or process being validated]
+Source: [Brief Source System Name, e.g., Production DB]
+Target: [Brief Target System Name, e.g., Analytics Warehouse]
+
+(Bottom of Page)
+Date: [Date of Validation]
+Version: [Document Version, e.g., 1.0]
+Prepared By: [Your Name/Team Name]
+
+(Insert Page Break)
+
+(Page 2 onwards)
+
+Document Control
+
+Item	Details
+Date	[Date of Validation]
+Validator	[Your Name/Team Name]
+Version	[Document Version, e.g., 1.0]
+Status	[Draft / Final]
+Approved By	[Name of Approver, if applicable]
+Approval Date	[Date of Approval, if applicable]
+
+(Use Heading 1 Style)
+1. Introduction & Purpose
+
+This document outlines the validation process and results for the data ingestion pipeline transferring data from [Full Source System/Platform Name and Details] to [Full Target System/Platform Name and Details].
+
+The purpose of this validation is to ensure data integrity, completeness, and accuracy after the ingestion process. It aims to confirm that the data in the target location faithfully represents the data from the source location for the specified scope, according to the defined success criteria.
+
+Pipeline/Process Name: [Name of the specific ETL/ELT job or process being validated]
+
+(Use Heading 1 Style)
+2. Scope
+
+(Use Heading 2 Style)
+2.1. Source Data
+
+Platform/Database: [e.g., Production MySQL DB Server XYZ, S3 Bucket my-raw-data]
+
+Dataset/Table(s): [e.g., schema.orders, customer_data_v3.parquet]
+
+Data Extraction Criteria: [e.g., Full data load as of YYYY-MM-DD HH:MM UTC, Incremental load for records updated/created on YYYY-MM-DD, Specific query used for extraction]
+
+(Use Heading 2 Style)
+2.2. Target Data
+
+Platform/Database: [e.g., Snowflake Data Warehouse PROD_WH, Target S3 Bucket my-processed-data]
+
+Dataset/Table(s): [e.g., analytics.fact_orders, processed_customer_data.parquet]
+
+Load Type: [e.g., Overwrite, Append, Merge/Upsert]
+
+(Use Heading 1 Style)
+3. Validation Approach
+
+Data validation was performed using a metadata and statistics comparison method. Summary reports containing key metrics were generated independently from both the source and target datasets. These reports were then systematically compared to identify discrepancies.
+
+(Use Heading 2 Style)
+3.1. Methodology
+
+Report Generation (Source):
+
+A script ([script_name.py]) was executed on the source platform against the specified source data.
+
+This generated a base_report.json file containing:
+
+Dataset Shape (Row and Column Count)
+
+Column Names and Order
+
+Column Data Types
+
+Null Value Counts per Column
+
+Descriptive Statistics (count, mean, std, min, max, unique, top, freq, etc.)
+
+Aggregate Content Hash (SHA256) based on key columns: [List the hash_columns used]. Data was [Sorted / Not Sorted] by these keys before hashing.
+
+Report Generation (Target):
+
+An identical script ([script_name.py]) using the same parameters (especially for hashing) was executed on the target platform against the ingested data.
+
+This generated an ingested_report.json file with the same structure.
+
+Report Comparison:
+
+The base_report.json was transferred to the environment containing ingested_report.json.
+
+A comparison script ([comparison_script.py]) was executed to compare the contents of the two JSON reports.
+
+Numeric statistics were compared using a relative tolerance of [e.g., 1e-5] and an absolute tolerance of [e.g., 1e-8]. Other metrics required exact matches.
+
+(Use Heading 2 Style)
+3.2. Tools Used
+
+Programming Language: [e.g., Python 3.9]
+
+Libraries: [e.g., Pandas 1.4, NumPy 1.21]
+
+Scripts: [e.g., generate_report.py, compare_reports.py (Link to code repository or attach scripts if necessary)]
+
+Platforms: [e.g., Source: AWS RDS, Target: Snowflake; or Source: On-prem Server, Target: Azure Synapse]
+
+(Use Heading 1 Style)
+4. Validation Checks & Success Criteria
+
+(Insert a Word Table: 3 Columns, 7 Rows)
+
+Validation Check	Description	Success Criteria
+Shape Match	Verifies that the number of rows and columns are identical between source and target.	Exact match between source and target row counts and column counts reported.
+Column Match	Verifies that column names and their specific order are identical.	Exact match of the list of column names and their sequence. (Note if order mismatch is acceptable under certain conditions)
+Data Type Match	Verifies that the data types inferred or defined for each corresponding column match.	Exact match of data types (as reported in the summaries) for all columns.
+Null Count Match	Verifies that the count of NULL/NaN values for each corresponding column is identical.	Exact match of null counts reported for every column.
+Statistics Match	Compares key descriptive statistics (e.g., count, mean, std, min, max, unique).	Numeric statistics match within the defined relative tolerance [e.g., 1e-5] and absolute tolerance [e.g., 1e-8]. Non-numeric stats (e.g., count, unique, top, freq) match exactly.
+Aggregate Hash Match	Compares the single aggregate hash generated from the content of specified key columns.	Exact match of the final aggregate SHA256 hash string between the source and target reports.
+
+(Use Heading 1 Style)
+5. Execution Details
+
+Source Report Generation Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
+
+Target Report Generation Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
+
+Comparison Execution Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
+
+Source Report File: [e.g., base_report.json]
+
+Location/Link: [Provide path or link if accessible]
+
+Target Report File: [e.g., ingested_report.json]
+
+Location/Link: [Provide path or link if accessible]
+
+Comparison Results File: [e.g., comparison_results.json or reference this document section]
+
+Location/Link: [Provide path or link if accessible]
+
+(Use Heading 1 Style)
+6. Results Summary
+
+Overall Validation Status: [PASS / FAIL]
+
+(Insert a Word Table: 3 Columns, 7 Rows)
+
+Validation Check	Status [PASS/FAIL/SKIPPED/ERROR]	Notes / Mismatch Details (Brief)
+Shape Match	[PASS/FAIL]	[e.g., OK; or Base=(1000, 10), Ingested=(1001, 10) - 1 extra row]
+Column Match	[PASS/FAIL]	[e.g., OK; or FAIL - Order differs; or FAIL - Col 'xyz' missing in target]
+Data Type Match	[PASS/FAIL/SKIPPED]	[e.g., OK; or FAIL - Col 'user_id': base=int64, ingested=object]
+Null Count Match	[PASS/FAIL/SKIPPED]	[e.g., OK; or FAIL - Col 'order_date': base=5 nulls, ingested=6 nulls]
+Statistics Match	[PASS/FAIL/SKIPPED/ERROR]	[e.g., OK; or FAIL - Col 'amount' mean differs: base=10.123, ingest=10.456; or ERROR - Calculation failed]
+Aggregate Hash Match	[PASS/FAIL/SKIPPED/ERROR]	[e.g., OK; or FAIL - Hashes do not match; or SKIPPED - Not performed; or ERROR - Hashing failed]
+
+(Use Heading 1 Style)
+7. Detailed Findings (If Applicable)
+
+(This section should only be filled in detail if the Overall Status is FAIL, or if there are significant warnings, errors, or skipped checks that require explanation.)
+
+(Use Heading 3 Style) Finding 1: [Title, e.g., Row Count Mismatch]
+
+Description: [Detailed description of the discrepancy. E.g., The target dataset contained one more row than the source dataset.]
+
+Analysis/Investigation: [Steps taken to investigate. E.g., Queried both source and target for potential duplicates or boundary condition issues. Found extra row corresponds to ID 'XYZ' which appears duplicated in target.]
+
+Impact: [Potential impact of the discrepancy.]
+
+Evidence: [Reference specific data, attach screenshots if helpful, or point to detailed logs/queries.]
+
+(Use Heading 3 Style) Finding 2: [Title, e.g., Data Type Mismatch for user_id]
+
+Description: [e.g., The user_id column was reported as int64 in the source but object (string) in the target.]
+
+Analysis/Investigation: [e.g., Inspected target table schema and sample data. Confirmed target column was defined as VARCHAR.]
+
+Impact: [e.g., May cause issues with downstream joins or calculations expecting numeric type.]
+
+Evidence: [e.g., Source DDL, Target DDL, report snippets.]
+
+(Add more findings as needed)
+
+(Use Heading 1 Style)
+8. Conclusion & Sign-off
+
+Based on the validation checks performed and the results summarized above, the ingested data in [Target System/Platform Name] for dataset [Dataset/Table(s)] as of [Timestamp/Date Scope]
+
+[Choose one:]
+
+is considered a faithful and accurate representation of the source data as defined in the scope. The ingestion process is validated as PASS.
+
+is NOT considered a faithful and accurate representation of the source data due to the discrepancies noted in Section 7. The ingestion process validation is marked as FAIL.
+
+[Required if FAIL, Optional otherwise]
+Recommendations / Action Items:
+
+[e.g., Investigate and fix the root cause of the row count mismatch in the ETL process.]
+
+[e.g., Correct the data type mapping for the user_id column in the target table definition or ETL transformation.]
+
+[e.g., Re-run the ingestion pipeline for the affected data scope.]
+
+[e.g., Re-perform data validation after fixes are implemented.]
+
+Validated By:
+
+Name: _________________________
+Date: _________________________
+Signature: _________________________
+
+Approved By (Optional):
+
+Name: _________________________
+Date: _________________________
+Signature: _________________________
+
+How to Use in Word:
+
+Copy & Paste: Copy all the text above into a new Word document.
+
+Apply Styles:
+
+Select the main headings (e.g., "1. Introduction & Purpose") and apply the "Heading 1" style from the Home tab.
+
+Select sub-headings (e.g., "2.1. Source Data") and apply the "Heading 2" style.
+
+Select finding titles (e.g., "Finding 1: ...") and apply the "Heading 3" style.
+
+Format Text: Use Bold (Ctrl+B) for labels like **Platform/Database:**.
+
+Create Tables: Where indicated *(Insert a Word Table...)*, go to the Insert tab -> Table and create a table with the specified dimensions. Copy the header row and placeholder content into the table cells.
+
+Use Bullets/Numbering: Apply bullets or numbering where lists are used.
+
+Fill Placeholders: Replace all bracketed text [...] with your specific details.
+
+Add Header/Footer: Consider adding a simple header (e.g., Document Title) and footer (e.g., Page Number, Confidentiality Notice).
+
+Review and Finalize: Proofread the document for accuracy and clarity. Adjust formatting as needed.

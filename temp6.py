@@ -1,3 +1,133 @@
+import pandas as pd
+import numpy as np
+import hashlib
+import json
+from typing import List, Optional, Dict, Any
+
+def generate_validation_report(
+    df: pd.DataFrame,
+    report_filepath: str,
+    hash_columns: Optional[List[str]] = None,
+    sort_for_hashing: bool = True
+) -> Dict[str, Any]:
+    """
+    Generates a validation report (metadata, stats, optional hashes) for a DataFrame.
+
+    Args:
+        df: The DataFrame to analyze (either base or ingested).
+        report_filepath: Path to save the generated JSON report.
+        hash_columns: A list of column names to use for creating a unique identifier
+                      for each row before hashing. If None, hashing is skipped.
+                      These columns should ideally form a unique key.
+        sort_for_hashing: If True and hash_columns are provided, sort the DataFrame
+                          by hash_columns before generating row hashes. Essential if
+                          row order is not guaranteed and you want a comparable
+                          aggregate hash.
+
+    Returns:
+        A dictionary containing the validation report data. Also saves this
+        dictionary as a JSON file to report_filepath.
+    """
+    report = {}
+    print(f"--- Generating Validation Report for DataFrame ---")
+
+    # 1. Shape
+    report['shape'] = df.shape
+    print(f"Shape: {report['shape']}")
+
+    # 2. Columns
+    report['columns'] = list(df.columns)
+    print(f"Columns: {report['columns']}")
+
+    # 3. Data Types (convert to string for JSON compatibility)
+    report['dtypes'] = {col: str(dtype) for col, dtype in df.dtypes.items()}
+    print(f"Data Types: {report['dtypes']}")
+
+    # 4. Basic Statistics (convert to JSON-friendly format)
+    print("Calculating descriptive statistics...")
+    try:
+        # Include 'all' for non-numeric stats, handle potential datetime issues
+        desc = df.describe(include='all', datetime_is_numeric=True)
+        # Convert numpy types to standard python types for JSON
+        report['descriptive_stats'] = json.loads(desc.to_json(orient='columns', default_handler=str))
+        print("Descriptive statistics calculated.")
+    except Exception as e:
+        print(f"WARN: Could not calculate descriptive statistics: {e}")
+        report['descriptive_stats'] = {"error": f"Could not calculate: {e}"}
+
+    # 5. Null Counts
+    report['null_counts'] = {col: int(df[col].isnull().sum()) for col in df.columns}
+    print(f"Null Counts: {report['null_counts']}")
+
+    # 6. Hashing (Optional but recommended for content validation)
+    report['hashing_info'] = {
+        'hashed': False,
+        'hash_columns': hash_columns,
+        'sorted_for_hashing': sort_for_hashing if hash_columns else None,
+        'aggregate_hash': None,
+        # 'row_hashes': [] # Storing all row hashes can be large, often aggregate is enough
+    }
+    if hash_columns:
+        print(f"Calculating hashes using columns: {hash_columns} (Sorting: {sort_for_hashing})...")
+        try:
+            if not all(col in df.columns for col in hash_columns):
+                raise ValueError(f"One or more hash_columns not found in DataFrame: {hash_columns}")
+
+            temp_df = df[hash_columns].copy()
+
+            if sort_for_hashing:
+                print("Sorting DataFrame for consistent hashing...")
+                temp_df = temp_df.sort_values(by=hash_columns) # Sort only the key columns needed for hashing
+
+            # Define a consistent way to represent a row as a string for hashing
+            # Handle NaNs consistently (e.g., replace with a specific string)
+            def create_row_string(row):
+                return "|".join(str(x) if pd.notna(x) else '<<NaN>>' for x in row)
+
+            print("Generating row strings...")
+            row_strings = temp_df.apply(create_row_string, axis=1)
+
+            print("Calculating row hashes (SHA256)...")
+            # Calculate hash for each row string
+            row_hashes = row_strings.apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
+
+            # Calculate an aggregate hash of all sorted row hashes
+            # Sort the individual row hashes first to ensure order doesn't matter
+            print("Calculating aggregate hash...")
+            all_hashes_sorted_string = "".join(sorted(row_hashes.tolist()))
+            aggregate_hash = hashlib.sha256(all_hashes_sorted_string.encode('utf-8')).hexdigest()
+
+            report['hashing_info']['hashed'] = True
+            report['hashing_info']['aggregate_hash'] = aggregate_hash
+            # report['hashing_info']['row_hashes'] = row_hashes.tolist() # Optional: uncomment if needed, but be mindful of size
+            print(f"Aggregate Hash (SHA256): {aggregate_hash}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to calculate hashes: {e}")
+            report['hashing_info']['error'] = f"Hashing failed: {e}"
+            report['hashing_info']['aggregate_hash'] = None # Ensure hash is None on error
+
+    # Save report to JSON
+    try:
+        with open(report_filepath, 'w') as f:
+            json.dump(report, f, indent=4)
+        print(f"Validation report saved to: {report_filepath}")
+    except Exception as e:
+        print(f"ERROR: Failed to save report to {report_filepath}: {e}")
+
+    print("--- Report Generation Complete ---")
+    return report
+
+
+
+
+
+
+
+
+
+
+
 import json
 import numpy as np
 from typing import Dict, Any

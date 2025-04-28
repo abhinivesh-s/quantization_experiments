@@ -45,7 +45,7 @@ def basic_tokenizer(text):
     text = str(text).lower()
     return text.split()
 
-# --- Helper Function for Plotting Discrete Distributions (Modified) ---
+# --- Helper Function for Plotting Discrete Distributions ---
 def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categories=40, fixed_width=18, category_order_override: Optional[List[str]] = None):
     """Plots count and normalized count for a discrete column with fixed width, allowing order override."""
     if col_name not in data.columns or data[col_name].isnull().all():
@@ -53,25 +53,18 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         return
     data = data.copy(); data[col_name] = data[col_name].astype(str)
     value_counts = data[col_name].value_counts()
-
-    # Determine final category order
     if category_order_override:
-        # Filter override list to only include categories present in the data
         actual_categories_in_data = value_counts.index.tolist()
         final_category_order = [cat for cat in category_order_override if cat in actual_categories_in_data]
-        # Decide if filtering needed (respect max_categories even with override?) - let's apply max_categories AFTER override for now
-        # This means override dictates presence, frequency dictates which subset of override is shown if > max_categories
         if len(final_category_order) > max_categories:
-             # Get frequency of the override categories present
              override_freq = value_counts.loc[final_category_order]
              final_category_order = override_freq.nlargest(max_categories).index.tolist()
+             final_category_order = [cat for cat in category_order_override if cat in final_category_order]
              plot_title_suffix = f' (Top {max_categories} of Ordered)'
         else:
              plot_title_suffix = ' (Ordered)'
-        # Filter data to only include categories in the final order
         data_filtered = data[data[col_name].isin(final_category_order)]
     else:
-        # Default frequency-based ordering and filtering
         if len(value_counts) > max_categories:
             final_category_order = value_counts.nlargest(max_categories).index.tolist()
             data_filtered = data[data[col_name].isin(final_category_order)]
@@ -79,9 +72,7 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         else:
             final_category_order = value_counts.index.tolist()
             data_filtered = data; plot_title_suffix = ''
-
     if data_filtered.empty: print(f"Skipping plot for '{col_name}' in '{df_name}': No data remains after filtering."); return
-
     fig, axes = plt.subplots(1, 2, figsize=(fixed_width, 6))
     try: # Count Plot
         sns.countplot(x=col_name, data=data_filtered, order=final_category_order, palette='viridis', ax=axes[0])
@@ -90,7 +81,6 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
         if rotation != 0: plt.setp(axes[0].get_xticklabels(), ha='right', rotation_mode='anchor')
     except Exception as e: print(f"Error plotting countplot for {col_name} in {df_name}: {e}"); plt.close(fig); return
     try: # Normalized Count Plot
-        # Recalculate on filtered data, reindex ensures all categories in order appear
         norm_counts_filtered = data_filtered[col_name].value_counts(normalize=True).reindex(final_category_order, fill_value=0)
         sns.barplot(x=norm_counts_filtered.index, y=norm_counts_filtered.values, order=final_category_order, palette='viridis', ax=axes[1])
         axes[1].set_title(f'{df_name}: Normalized Distribution of {col_name}{plot_title_suffix}'); axes[1].set_xlabel(col_name); axes[1].set_ylabel('Proportion');
@@ -99,7 +89,7 @@ def plot_discrete_distribution(data, col_name, df_name, rotation=45, max_categor
     except Exception as e: print(f"Error plotting normalized barplot for {col_name} in {df_name}: {e}"); plt.close(fig); return
     fig.suptitle(f'Distribution Analysis for: {col_name} in {df_name}', fontsize=16, y=1.02); fig.tight_layout(rect=[0, 0, 1, 0.98]); plt.show()
 
-# --- Helper Function for Comparing Discrete Distributions (Modified) ---
+# --- Helper Function for Comparing Discrete Distributions ---
 def compare_discrete_distributions(dataframes, col_name, rotation=45, max_categories=40, fixed_width=18, category_order_override: Optional[List[str]] = None):
     """Compares normalized distributions of a discrete column across dataframes with fixed width, allowing order override."""
     comparison_data = []; all_categories_present = set(); valid_dfs = {}
@@ -112,37 +102,24 @@ def compare_discrete_distributions(dataframes, col_name, rotation=45, max_catego
     if not comparison_data or len(valid_dfs) < 2:
         print(f"Skipping comparison plot for '{col_name}': Not found in enough dataframes or data is all NaN.")
         return
-
     comparison_df = pd.DataFrame(comparison_data)
-
-    # Determine final category order
     plot_title_suffix = ''
     if category_order_override:
-        # Use override, but only categories present in the data
         final_category_order = [cat for cat in category_order_override if cat in all_categories_present]
-        # Apply max_categories limit if needed, based on frequency within the override list
         if len(final_category_order) > max_categories:
              cat_freq = comparison_df[comparison_df['Category'].isin(final_category_order)].groupby('Category')['Proportion'].sum()
              final_category_order = cat_freq.nlargest(max_categories).index.tolist()
-             # Re-sort according to original override order if desired (optional, can be complex)
              final_category_order = [cat for cat in category_order_override if cat in final_category_order]
              plot_title_suffix = f' (Top {max_categories} of Ordered)'
-        else:
-             plot_title_suffix = ' (Ordered)'
+        else: plot_title_suffix = ' (Ordered)'
     else:
-        # Default frequency-based ordering
         category_importance = comparison_df.groupby('Category')['Proportion'].mean().sort_values(ascending=False)
         if len(all_categories_present) > max_categories:
             final_category_order = category_importance.nlargest(max_categories).index.tolist()
             plot_title_suffix = f' (Top {max_categories} Overall)'
-        else:
-            final_category_order = category_importance.index.tolist()
-
-    # Filter comparison data to only include categories in the final order
+        else: final_category_order = category_importance.index.tolist()
     comparison_df_filtered = comparison_df[comparison_df['Category'].isin(final_category_order)]
-
     if comparison_df_filtered.empty: print(f"Skipping comparison plot for '{col_name}': No data remains after filtering."); return
-
     fig, ax = plt.subplots(figsize=(fixed_width, 7))
     try:
         sns.barplot(x='Category', y='Proportion', hue='DataFrame', data=comparison_df_filtered, order=final_category_order, palette='viridis', ax=ax)
@@ -222,6 +199,7 @@ def comprehensive_nlp_eda(
     top_n_terms: int =20,
     analyze_bigrams: bool =True,
     ngram_analysis_sample_size: int =25000,
+    ttr_min_samples_per_class: int = 10, # Min samples needed for per-class TTR
     # Specific Comparisons
     specific_comparisons: Optional[List[Tuple[str, str]]] = None
 ):
@@ -229,7 +207,7 @@ def comprehensive_nlp_eda(
     Performs comprehensive EDA for multiclass NLP classification on multiple dataframes.
 
     Args:
-        dataframes (Dict[str, pd.DataFrame]): Dictionary mapping dataframe names (str) to pandas DataFrames.
+        dataframes (Dict[str, pd.DataFrame]): Dictionary mapping dataframe names to DataFrames.
         text_col (str): Name of the text column (assumed preprocessed except for lowercase).
         target_col (str): Name of the target label column.
         common_meta_discrete (List[str]): List of discrete metadata columns common to all dfs.
@@ -249,22 +227,17 @@ def comprehensive_nlp_eda(
         top_n_terms (int): Number of top terms/n-grams to display/compare.
         analyze_bigrams (bool): Whether to include bigram analysis (requires analyze_ngrams=True).
         ngram_analysis_sample_size (int): Max documents per dataset sampled for dataset N-gram analysis.
+        ttr_min_samples_per_class (int): Min samples needed for per-class TTR calculation/plotting.
         specific_comparisons (Optional[List[Tuple[str, str]]]): List of dataframe name pairs for direct comparison. Example: [('oot', 'prod'), ('train', 'test')].
     """
     # --- Setup ---
     plt.rcParams['figure.dpi'] = high_dpi
     print("="*80); print("Comprehensive NLP EDA Report"); print("="*80)
     target_dfs = {}
-
-    # --- Define Token Bucket Order ---
-    # Adjust this list based on the actual buckets created in your data prep
     TOKEN_BUCKET_ORDER = ['0-100', '101-500', '501-1000', '1001-5000', '5001-10000', '10000+', '5000+']
-    # Add 'nan' if you expect NaN buckets to be plotted as strings
-    # TOKEN_BUCKET_ORDER.append('nan')
 
     # --- 1. Basic Information ---
     print("\n--- 1. Basic Information ---")
-    # ... (Code unchanged) ...
     for name, df in dataframes.items():
         print(f"\n--- DataFrame: {name} ---"); print(f"Shape: {df.shape}")
         print("\nColumns and Data Types:"); df.info()
@@ -283,7 +256,6 @@ def comprehensive_nlp_eda(
             if not df[target_col].isnull().all(): target_dfs[name] = df
         else: print(f"\nTarget Variable ('{target_col}') not found in {name}.")
 
-
     # --- 2. Metadata Analysis: Discrete Columns ---
     print("\n" + "="*80); print("--- 2. Metadata Analysis: Discrete Columns ---")
     print(f"\n--- Target Column ('{target_col}') Analysis ---")
@@ -291,36 +263,28 @@ def comprehensive_nlp_eda(
         for name, df in target_dfs.items(): plot_discrete_distribution(df, target_col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
         compare_discrete_distributions(target_dfs, target_col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width)
     else: print(f"Target column '{target_col}' not found or all NaN.")
-
     print("\n--- Common Discrete Metadata Analysis ---")
     for col in common_meta_discrete:
         print(f"\nAnalyzing: {col}")
-        # Check if the column is the token bucket column for ordering
         order_override = TOKEN_BUCKET_ORDER if col == 'token bucket' else None
         for name, df in dataframes.items():
-            if col in df.columns:
-                plot_discrete_distribution(df, col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
+            if col in df.columns: plot_discrete_distribution(df, col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
             else: print(f"Column '{col}' not found in DataFrame '{name}'.")
         compare_discrete_distributions(dataframes, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
-
     print("\n--- Specific Discrete Metadata Analysis ---")
     for col in specific_meta_discrete:
         print(f"\nAnalyzing: {col}"); specific_dfs = {name: df for name, df in dataframes.items() if col in df.columns}
         if specific_dfs:
             valid_specific_dfs = {n: d for n, d in specific_dfs.items() if not d[col].isnull().all()}
             if valid_specific_dfs:
-                # Check if the column is the token bucket column for ordering (less likely here, but for completeness)
                 order_override = TOKEN_BUCKET_ORDER if col == 'token bucket' else None
-                for name, df in valid_specific_dfs.items():
-                     plot_discrete_distribution(df, col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
+                for name, df in valid_specific_dfs.items(): plot_discrete_distribution(df, col, name, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
                 compare_discrete_distributions(valid_specific_dfs, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
             else: print(f"Column '{col}' found but contains only NaN values.")
         else: print(f"Column '{col}' not found.")
 
-
     # --- 3. Metadata Analysis: Continuous Columns ---
     print("\n" + "="*80); print("--- 3. Metadata Analysis: Continuous Columns ---")
-    # ... (Code unchanged) ...
     for col in common_meta_continuous:
         print(f"\nAnalyzing: {col}")
         num_dfs_with_col = sum(1 for df in dataframes.values() if col in df.columns and not df[col].isnull().all())
@@ -364,10 +328,8 @@ def comprehensive_nlp_eda(
                 else: print(f"Target column in '{name}' NaN.")
         else: print(f"Could not perform analysis by target for '{col}'.")
 
-
     # --- 4. Metadata Analysis: Datetime Columns ---
     print("\n" + "="*80); print("--- 4. Metadata Analysis: Datetime Columns ---")
-    # ... (Code unchanged) ...
     for col in specific_meta_datetime:
          print(f"\nAnalyzing: {col}"); dt_dfs = {}
          for name, df in dataframes.items(): # Conversion unchanged
@@ -404,10 +366,8 @@ def comprehensive_nlp_eda(
                   else: print(f"No non-NaN data points for yearly counts.")
          else: print(f"Column '{col}' not found or unusable.")
 
-
     # --- 5. Out-of-Vocabulary (OOV) Analysis ---
     print("\n" + "="*80); print("--- 5. Out-of-Vocabulary (OOV) Analysis ---")
-    # ... (Code unchanged) ...
     if oov_reference_df_name not in dataframes: print(f"Error: Reference DF '{oov_reference_df_name}' not found.")
     else:
         ref_df = dataframes[oov_reference_df_name]
@@ -443,7 +403,7 @@ def comprehensive_nlp_eda(
 
     # --- 6. Cross-Feature Analysis (Examples) ---
     print("\n" + "="*80); print("--- 6. Cross-Feature Analysis (Examples) ---")
-    # ... (Code unchanged, includes check for token bucket order override) ...
+    # ... (Code unchanged) ...
     col1_ex1 = common_meta_discrete[0] if common_meta_discrete else None; col2_ex1 = common_meta_continuous[0] if common_meta_continuous else None
     if col1_ex1 and col2_ex1: # Example 1
         print(f"\n--- Analyzing: '{col1_ex1}' vs '{col2_ex1}' ---"); data = []
@@ -454,11 +414,8 @@ def comprehensive_nlp_eda(
                      if not tdf.empty: tdf['DataFrame'] = name; tdf[col1_ex1] = tdf[col1_ex1].astype(str); data.append(tdf)
         if data:
             cdf = pd.concat(data, ignore_index=True)
-            # Use predefined order if col1 is token bucket
             order_ex1 = TOKEN_BUCKET_ORDER if col1_ex1 == 'token bucket' else cdf[col1_ex1].value_counts().index[:max_categories_plot].tolist()
-            # Filter order_ex1 to only categories present in cdf[col1_ex1] to avoid plotting errors
             order_ex1_filtered = [cat for cat in order_ex1 if cat in cdf[col1_ex1].unique()]
-
             fig, ax = plt.subplots(figsize=(plot_width, 7)); sns.boxplot(x=col1_ex1, y=col2_ex1, hue='DataFrame', data=cdf, palette='viridis', order=order_ex1_filtered, showfliers=False, ax=ax)
             ax.set_title(f'Relationship: "{col1_ex1}" vs "{col2_ex1}" (Outliers Hidden)'); ax.set_xlabel(col1_ex1); ax.set_ylabel(col2_ex1);
             ax.tick_params(axis='x', rotation=label_rotation)
@@ -476,13 +433,9 @@ def comprehensive_nlp_eda(
                  dfp[col1_ex2] = dfp[col1_ex2].astype(str); dfp[target_col] = dfp[target_col].astype(str)
                  try:
                     ct = pd.crosstab(dfp[col1_ex2], dfp[target_col], normalize='index') * 100
-                    # Use predefined order if col1 is token bucket, otherwise use frequency
-                    if col1_ex2 == 'token bucket':
-                        order_ex2 = [b for b in TOKEN_BUCKET_ORDER if b in ct.index] # Filter order by present categories
-                    else:
-                         order_ex2 = dfp[col1_ex2].value_counts().index[:max_categories_plot].tolist()
-
-                    ct = ct.reindex(order_ex2).dropna(how='all') # Reindex and drop fully NaN rows
+                    if col1_ex2 == 'token bucket': order_ex2 = [b for b in TOKEN_BUCKET_ORDER if b in ct.index]
+                    else: order_ex2 = dfp[col1_ex2].value_counts().index[:max_categories_plot].tolist()
+                    ct = ct.reindex(order_ex2).dropna(how='all')
                     if ct.empty: continue
                     fig, ax = plt.subplots(figsize=(plot_width, 7)); ct.plot(kind='bar', stacked=True, colormap='viridis', ax=ax); ax.set_title(f'{name}: Proportion of "{target_col}" within "{col1_ex2}" (Top {len(order_ex2)} Cats)'); ax.set_xlabel(col1_ex2); ax.set_ylabel('%');
                     ax.tick_params(axis='x', rotation=label_rotation)
@@ -498,54 +451,73 @@ def comprehensive_nlp_eda(
 
         # --- 7a. Type-Token Ratio (TTR) ---
         print(f"\n--- 7a. Type-Token Ratio (Lexical Diversity, Stopwords Removed) ---")
-        ttr_results = {}
+        ttr_data_list = [] # Store results for final plot
+        # Calculate TTR per Dataset (no change in logic, just storing)
         print("\nCalculating TTR per Dataset:")
         for name, df in dataframes.items():
-            if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping"); ttr_results[f"{name}_overall"] = np.nan; continue
+            if text_col not in df.columns or df[text_col].isnull().all(): print(f"- {name}: Skipping"); continue
             token_lists = df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
             all_tokens_filtered = [token for sublist in token_lists for token in sublist]
-            if not all_tokens_filtered: print(f"- {name}: Skipping (No non-stopword tokens found)"); ttr_results[f"{name}_overall"] = np.nan; continue
+            if not all_tokens_filtered: print(f"- {name}: Skipping (No non-stopword tokens)"); continue
             total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
             ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
-            ttr_results[f"{name}_overall"] = ttr; print(f"- {name}: Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
+            print(f"- {name}: Unique={unique_tokens_filtered}, Total={total_tokens_filtered}, TTR={ttr:.2f}%")
+            # Add dataset level TTR for potential combined plot later if needed
+            # ttr_data_list.append({'Dataset': name, 'RCC': 'Overall', 'TTR': ttr})
 
-        print(f"\nCalculating TTR per Class ('{oov_reference_df_name}' data, Stopwords Removed):")
-        ref_df_ttr = dataframes.get(oov_reference_df_name)
-        if ref_df_ttr is not None and target_col in ref_df_ttr.columns and text_col in ref_df_ttr.columns:
-            grouped = ref_df_ttr.dropna(subset=[text_col, target_col]).groupby(target_col)
-            for class_label, group_df in grouped:
-                token_lists = group_df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
-                all_tokens_filtered = [token for sublist in token_lists for token in sublist]
-                if not all_tokens_filtered: print(f"- Class '{class_label}': Skipping (No non-stopword tokens)"); ttr_results[f"Class_{class_label}"] = np.nan; continue
-                total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
-                ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
-                ttr_results[f"Class_{class_label}"] = ttr; print(f"- Class '{class_label}': Unique Non-Stopwords={unique_tokens_filtered}, Total Non-Stopwords={total_tokens_filtered}, TTR={ttr:.2f}%")
-        else: print(f"Could not calculate TTR per class.")
-        valid_ttr = {k: v for k,v in ttr_results.items() if pd.notna(v)}
-        if valid_ttr:
-            ttr_series = pd.Series(valid_ttr).sort_values(); fig, ax = plt.subplots(figsize=(max(8, len(ttr_series)*0.6), 5)); sns.barplot(x=ttr_series.index, y=ttr_series.values, palette='coolwarm', ax=ax)
-            ax.set_ylabel("TTR (%)"); ax.set_title("Type-Token Ratio Comparison (Stopwords Removed)");
-            ax.tick_params(axis='x', rotation=60); fig.tight_layout(); plt.show()
+        # Calculate TTR per Class for Train, Test, OOT
+        print(f"\nCalculating TTR per Class (for Train, Test, OOT if available):")
+        all_classes_found = set()
+        for dataset_name in [name for name in [oov_reference_df_name, 'test', 'oot'] if name in dataframes]:
+             df_ttr = dataframes.get(dataset_name)
+             if df_ttr is None or target_col not in df_ttr.columns or text_col not in df_ttr.columns:
+                 print(f"Skipping TTR per class for '{dataset_name}': Missing DF or required columns.")
+                 continue
+             print(f"Processing '{dataset_name}' for per-class TTR...")
+             grouped = df_ttr.dropna(subset=[text_col, target_col]).groupby(target_col)
+             for class_label, group_df in grouped:
+                 if len(group_df) < ttr_min_samples_per_class:
+                      print(f"  - Skipping Class '{class_label}' in '{dataset_name}': {len(group_df)} samples < {ttr_min_samples_per_class}")
+                      continue # Skip if too few samples
+                 all_classes_found.add(class_label) # Track all classes we calculate for
+                 token_lists = group_df[text_col].dropna().apply(lambda x: [token for token in basic_tokenizer(x) if token not in STOPWORDS])
+                 all_tokens_filtered = [token for sublist in token_lists for token in sublist]
+                 if not all_tokens_filtered: continue # Skip if no tokens after filtering
+                 total_tokens_filtered = len(all_tokens_filtered); unique_tokens_filtered = len(set(all_tokens_filtered))
+                 ttr = (unique_tokens_filtered / total_tokens_filtered) * 100 if total_tokens_filtered > 0 else 0
+                 ttr_data_list.append({'Dataset': dataset_name, 'RCC': str(class_label), 'TTR': ttr})
+                 # No individual print here
+
+        # Plot TTR Comparison per Class
+        if ttr_data_list:
+            ttr_df_plot = pd.DataFrame(ttr_data_list)
+            # Order classes alphabetically for consistent plotting
+            class_order = sorted(list(all_classes_found), key=str)
+            plt.figure(figsize=(max(10, len(class_order)*1.5), 6)) # Adjust width based on num classes
+            sns.barplot(data=ttr_df_plot, x='RCC', y='TTR', hue='Dataset', order=class_order, palette='viridis')
+            plt.ylabel("TTR (%) (Stopwords Removed)"); plt.xlabel("RCC Class")
+            plt.title(f"TTR per Class Comparison (Min {ttr_min_samples_per_class} Samples per Class/Dataset)")
+            plt.xticks(rotation=label_rotation, ha='right' if label_rotation else 'center')
+            plt.legend(title='Dataset', bbox_to_anchor=(1.05, 1), loc='upper left');
+            plt.tight_layout(rect=[0, 0, 0.9, 1]);
+            plt.show()
+        else:
+            print("\nNo sufficient data found to generate TTR per class comparison plot.")
+
 
         # --- N-Gram Analysis (Conditional) ---
         if analyze_ngrams:
             print("\n--- N-Gram Analysis Enabled ---")
-            # --- 7b. Top N-grams per Class (Save plots for train, test, oot) ---
+            # --- 7b. Top N-grams per Class (Save plots) ---
             print(f"\n--- 7b. Top N-grams per Class (Target Column: '{target_col}') ---")
             top_ngrams_data = {} # Structure: {dataset_name: {class_label: {'unigrams': {set}, 'bigrams': {set}}}}
-
             datasets_to_process_class = [name for name, df in dataframes.items() if name in [oov_reference_df_name, 'test', 'oot'] and target_col in df.columns and text_col in df.columns and not df[text_col].isnull().all()]
             print(f"Processing datasets: {', '.join(datasets_to_process_class)} for per-class N-grams...")
 
             for dataset_name in datasets_to_process_class:
-                 df_ngram = dataframes.get(dataset_name)
-                 if df_ngram is None: continue
-
-                 print(f"\nProcessing N-grams for dataset: '{dataset_name}'")
-                 top_ngrams_data[dataset_name] = {}
+                 df_ngram = dataframes.get(dataset_name); top_ngrams_data[dataset_name] = {}
                  grouped = df_ngram.dropna(subset=[text_col, target_col]).groupby(target_col)
-
-                 print(f"-> Analyzing top {top_n_terms} Unigrams (saving plots if path provided)...")
+                 print(f"\n-> Analyzing Top {top_n_terms} Unigrams for '{dataset_name}' (saving plots if path provided)...")
                  for class_label, group_df in tqdm(grouped, desc=f"Unigrams per Class ({dataset_name})"):
                      corpus = group_df[text_col].dropna().astype(str)
                      if not corpus.empty:
@@ -553,16 +525,10 @@ def comprehensive_nlp_eda(
                          if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
                          top_ngrams_data[dataset_name][class_label]['unigrams'] = set(top_unigrams_list)
                          save_filepath = None
-                         if base_save_path:
-                             safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
-                             save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
-                             save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
-                             plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams for Class: {class_label} ({dataset_name})", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath)
-                             if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}", end='\r')
-                 print() # Newline after tqdm loop
-
+                         if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label); save_filename = f"top_{top_n_terms}_unigrams.png"; save_filepath = os.path.join(save_dir, save_filename); plot_top_ngrams(corpus, title=f"Top {top_n_terms} Unigrams: Class {class_label} ({dataset_name})", ngram_range=(1,1), top_n=top_n_terms, save_path=save_filepath); # if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}", end='\r')
+                 print() # Newline
                  if analyze_bigrams:
-                     print(f"\n-> Analyzing top {top_n_terms} Bigrams (saving plots if path provided)...")
+                     print(f"\n-> Analyzing Top {top_n_terms} Bigrams for '{dataset_name}' (saving plots if path provided)...")
                      for class_label, group_df in tqdm(grouped, desc=f"Bigrams per Class ({dataset_name})"):
                           corpus = group_df[text_col].dropna().astype(str)
                           if not corpus.empty:
@@ -570,20 +536,14 @@ def comprehensive_nlp_eda(
                               if class_label not in top_ngrams_data[dataset_name]: top_ngrams_data[dataset_name][class_label] = {}
                               top_ngrams_data[dataset_name][class_label]['bigrams'] = set(top_bigrams_list)
                               save_filepath = None
-                              if base_save_path:
-                                  safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label))
-                                  save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label)
-                                  save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename)
-                                  plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams for Class: {class_label} ({dataset_name})", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath)
-                                  if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}", end='\r')
-                     print() # Newline after tqdm loop
+                              if base_save_path: safe_class_label = re.sub(r'[^\w\-]+', '_', str(class_label)); save_dir = os.path.join(base_save_path, "ngram_analysis", "ngrams_per_class", dataset_name, safe_class_label); save_filename = f"top_{top_n_terms}_bigrams.png"; save_filepath = os.path.join(save_dir, save_filename); plot_top_ngrams(corpus, title=f"Top {top_n_terms} Bigrams: Class {class_label} ({dataset_name})", ngram_range=(2,2), top_n=top_n_terms, save_path=save_filepath); # if save_filepath and os.path.exists(save_filepath): print(f"Saved: {save_filepath}", end='\r')
+                     print() # Newline
 
             # --- 7c. Class N-gram Overlap DataFrame ---
             print(f"\n--- 7c. Class N-gram Overlap vs '{oov_reference_df_name}' ---")
             overlap_results = []
             ref_ngrams_per_class = top_ngrams_data.get(oov_reference_df_name, {})
-            if not ref_ngrams_per_class:
-                 print(f"Cannot calculate class overlap: No N-gram data found for reference dataset '{oov_reference_df_name}'.")
+            if not ref_ngrams_per_class: print(f"Cannot calculate class overlap: No N-gram data for reference '{oov_reference_df_name}'.")
             else:
                 datasets_to_compare = [ds for ds in ['test', 'oot'] if ds in top_ngrams_data]
                 for compare_ds_name in datasets_to_compare:
@@ -696,7 +656,6 @@ def comprehensive_nlp_eda(
                 if discrete_common:
                      print(f"\nComparing Discrete Columns: {', '.join(discrete_common)}")
                      for col in discrete_common:
-                         # Apply specific order for token bucket if applicable
                          order_override = TOKEN_BUCKET_ORDER if col == 'token bucket' else None
                          compare_discrete_distributions(comparison_dfs_dict, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
 
@@ -715,7 +674,7 @@ def comprehensive_nlp_eda(
                              ax.set_title(f'Comparison of "{col}" ({name1} vs {name2}, Outliers Hidden)'); ax.set_xlabel(''); ax.set_ylabel(col); plt.show()
                          else: print(f"Skipping comparison for '{col}': Not enough valid data.")
 
-                # Compare Datetime Columns (Using common buckets)
+                # Compare Datetime Columns (With common buckets)
                 if datetime_common:
                      print(f"\nComparing Datetime Columns: {', '.join(datetime_common)}")
                      for col in datetime_common:
@@ -787,7 +746,7 @@ placeholder_data_oot = {'processed_text': ['Text c oot version with apples', 'OO
 prod_texts = [f'Prod text {i} example Content for Production apples' for i in range(100)] + [f'Prod text {i} Different Words maybe oranges the' for i in range(100,200)]
 placeholder_data_prod = {'processed_text': prod_texts, 'file extension': np.random.choice(['.msg', '.eml'], 200), 'number of tokens': np.random.randint(500, 2000, 200), 'token bucket': ['501-1000'] * 200, 'FileModifiedTime': pd.to_datetime(pd.date_range('2023-06-01', periods=200, freq='D')), 'LOB': np.random.choice(['HR', 'Operations'], 200)}
 train_df = pd.DataFrame(placeholder_data)
-test_df = pd.DataFrame(placeholder_data).copy(); test_df['processed_text'] = ['Test text a document with apples', 'Test b about evaluation and oranges', 'Test specific Words here too maybe bananas the']; test_df['LOB'] = ['Finance', 'HR', 'Finance']; test_df['RCC'] = ['ClassA', 'ClassB', 'ClassB'] # Change one class for overlap demo
+test_df = pd.DataFrame(placeholder_data).copy(); test_df['processed_text'] = ['Test text a document with apples', 'Test b about evaluation and oranges', 'Test specific Words here too maybe bananas the']; test_df['LOB'] = ['Finance', 'HR', 'Finance']; test_df['RCC'] = ['ClassA', 'ClassB', 'ClassB']
 oot_df = pd.DataFrame(placeholder_data_oot)
 prod_df = pd.DataFrame(placeholder_data_prod)
 val_df = train_df.sample(frac=0.5, random_state=1); val_df['processed_text'] = val_df['processed_text'] + ' validation extra word'; val_df['FileModifiedTime'] = val_df['FileModifiedTime'] - pd.Timedelta(days=180)
@@ -803,7 +762,7 @@ COMMON_CONTINUOUS_COLS = ['number of tokens']
 SPECIFIC_DISCRETE_COLS = ['LOB']
 SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
 REFERENCE_DF_NAME = 'train'
-BASE_SAVE_DIRECTORY = "./eda_outputs_final_v7" # Example save path
+BASE_SAVE_DIRECTORY = "./eda_outputs_final_v8" # Example save path
 COMPARISON_PAIRS = [('oot', 'prod'), ('train', 'test'), ('train', 'val')]
 
 # Call the comprehensive EDA function with new parameters
@@ -823,10 +782,11 @@ comprehensive_nlp_eda(
     plot_width=20,
     year_bucket_threshold=3,
     year_bucket_size=1,
-    analyze_text_content=True,
+    analyze_text_content=True,    # Enable Section 7
     analyze_ngrams=True,          # Enable N-grams and overlap table
-    top_n_terms=5,                # Reduced for example run speed
+    top_n_terms=15,
     analyze_bigrams=True,
-    ngram_analysis_sample_size=500, # Sample size for dataset n-grams
+    ngram_analysis_sample_size=500,
+    ttr_min_samples_per_class = 5, # Lower threshold for example data
     specific_comparisons=COMPARISON_PAIRS
 )

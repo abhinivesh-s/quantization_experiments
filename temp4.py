@@ -612,7 +612,7 @@ def comprehensive_nlp_eda(
         print("\nSkipping Text Content Analysis (analyze_text_content=False).")
 
 
-    # --- 8. Specific Dataset Comparisons ---
+    # --- Section 8: Specific Dataset Comparisons (Modified Datetime Plot) ---
     if specific_comparisons:
         print("\n" + "="*80); print("--- 8. Specific Dataset Comparisons ---")
         if not isinstance(specific_comparisons, (list, tuple)):
@@ -652,14 +652,14 @@ def comprehensive_nlp_eda(
                              else: print(f" -> Could not auto-classify '{col}'. Skipping.")
                          except Exception as e_classify: print(f" -> Error classifying '{col}': {e_classify}. Skipping.")
 
-                # Compare Discrete Columns
+                # Compare Discrete Columns (uses compare_discrete_distributions which plots proportions)
                 if discrete_common:
-                     print(f"\nComparing Discrete Columns: {', '.join(discrete_common)}")
+                     print(f"\nComparing Discrete Columns (Proportions): {', '.join(discrete_common)}")
                      for col in discrete_common:
                          order_override = TOKEN_BUCKET_ORDER if col == 'token bucket' else None
                          compare_discrete_distributions(comparison_dfs_dict, col, rotation=label_rotation, max_categories=max_categories_plot, fixed_width=plot_width, category_order_override=order_override)
 
-                # Compare Continuous Columns
+                # Compare Continuous Columns (Boxplot comparing distributions)
                 if continuous_common:
                      print(f"\nComparing Continuous Columns: {', '.join(continuous_common)}")
                      for col in continuous_common:
@@ -674,13 +674,14 @@ def comprehensive_nlp_eda(
                              ax.set_title(f'Comparison of "{col}" ({name1} vs {name2}, Outliers Hidden)'); ax.set_xlabel(''); ax.set_ylabel(col); plt.show()
                          else: print(f"Skipping comparison for '{col}': Not enough valid data.")
 
-                # Compare Datetime Columns (With common buckets)
+                # Compare Datetime Columns (Normalized Proportions)
                 if datetime_common:
-                     print(f"\nComparing Datetime Columns: {', '.join(datetime_common)}")
+                     print(f"\nComparing Datetime Columns (Proportions): {', '.join(datetime_common)}")
                      for col in datetime_common:
-                          print(f"\n--- Analyzing Datetime: {col} for {name1} vs {name2} ---")
+                          print(f"\n--- Analyzing Datetime Proportions: {col} for {name1} vs {name2} ---")
                           dt_dfs_comp = {}; valid_dt_data = []
-                          for name, df in comparison_dfs_dict.items(): # Validate/Convert
+                          # Validate/Convert Datetime column for the pair
+                          for name, df in comparison_dfs_dict.items():
                              df_copy = None
                              if col in df.columns and not df[col].isnull().all():
                                  if pd.api.types.is_datetime64_any_dtype(df[col]): df_copy = df.copy()
@@ -696,12 +697,12 @@ def comprehensive_nlp_eda(
                           combined_dates = pd.concat(valid_dt_data)[col]
                           if combined_dates.empty: print("No valid datetime values."); continue
 
+                          # Determine common buckets based on combined range
                           min_date = combined_dates.min(); max_date = combined_dates.max(); min_year = min_date.year; max_year = max_date.year
                           unique_years_overall = list(range(min_year, max_year + 1)); num_years = len(unique_years_overall)
                           bucket_col_name = f"{col}_Bucket"; use_buckets = num_years > year_bucket_threshold
                           bins = None; labels = None; x_axis_label = "Year"; plot_title_suffix = f" ({name1} vs {name2})"
-
-                          if use_buckets: # Determine common buckets
+                          if use_buckets:
                               print(f"Bucketing years ({num_years} > {year_bucket_threshold})."); actual_bucket_size = max(1, year_bucket_size)
                               bins = list(range(min_year, max_year + actual_bucket_size, actual_bucket_size));
                               if len(bins)>1 and bins[-1] <= max_year : bins.append(max_year + 1)
@@ -710,41 +711,58 @@ def comprehensive_nlp_eda(
                               x_axis_label = f'{actual_bucket_size}-Year Bucket'; plot_title_suffix += f' per {x_axis_label}'
                           else: labels = sorted([str(y) for y in unique_years_overall]); plot_title_suffix += ' per Year'
 
-                          plot_data_dt = []; all_bucket_labels_ordered = labels # Get counts per DF using common buckets
+                          # --- Calculate Normalized Counts per DF ---
+                          plot_data_dt_norm = []
+                          all_bucket_labels_ordered = labels
                           for name, df_dt in dt_dfs_comp.items():
                               df_dt_nonan = df_dt.dropna(subset=[col]).copy()
-                              if df_dt_nonan.empty: counts = pd.Series(0, index=pd.CategoricalIndex(all_bucket_labels_ordered, ordered=True))
+                              total_valid_docs = len(df_dt_nonan) # Denominator for normalization
+
+                              if total_valid_docs == 0: # Add zero proportions if df has no data
+                                   proportions = pd.Series(0.0, index=pd.CategoricalIndex(all_bucket_labels_ordered, ordered=True))
                               else:
                                   df_dt_nonan['Year'] = df_dt_nonan[col].dt.year
                                   if use_buckets: df_dt_nonan[bucket_col_name] = pd.cut(df_dt_nonan['Year'], bins=bins, labels=labels, right=False, include_lowest=True)
                                   else: df_dt_nonan[bucket_col_name] = df_dt_nonan['Year'].astype(str)
                                   df_dt_nonan[bucket_col_name] = pd.Categorical(df_dt_nonan[bucket_col_name], categories=all_bucket_labels_ordered, ordered=True)
-                                  counts = df_dt_nonan[bucket_col_name].value_counts()
-                              counts = counts.reindex(all_bucket_labels_ordered, fill_value=0); df_counts = pd.DataFrame({'Count': counts})
-                              df_counts['DataFrame'] = name; df_counts['Bucket'] = counts.index; plot_data_dt.append(df_counts)
+                                  # Calculate proportions instead of counts
+                                  proportions = df_dt_nonan[bucket_col_name].value_counts(normalize=True) # Use normalize=True
 
-                          if not plot_data_dt: print("No data to plot for datetime comparison."); continue # Plot combined counts
-                          combined_dt_counts = pd.concat(plot_data_dt).reset_index(drop=True)
+                              # Reindex counts to include all possible buckets/labels with 0 prop if missing
+                              proportions = proportions.reindex(all_bucket_labels_ordered, fill_value=0.0)
+                              df_props = pd.DataFrame({'Proportion': proportions})
+                              df_props['DataFrame'] = name
+                              df_props['Bucket'] = proportions.index
+                              plot_data_dt_norm.append(df_props)
+
+                          # Plot combined proportions
+                          if not plot_data_dt_norm: print("No data to plot for datetime proportion comparison."); continue
+                          combined_dt_props = pd.concat(plot_data_dt_norm).reset_index(drop=True)
+
                           fig, ax = plt.subplots(figsize=(plot_width, 6))
-                          sns.barplot(x='Bucket', y='Count', hue='DataFrame', data=combined_dt_counts, palette='viridis', ax=ax)
-                          ax.set_title(f'Document Count Comparison for "{col}"{plot_title_suffix}')
-                          ax.set_xlabel(x_axis_label); ax.set_ylabel('Number of Documents'); ax.tick_params(axis='x', rotation=label_rotation, labelsize='small')
+                          sns.barplot(x='Bucket', y='Proportion', hue='DataFrame', data=combined_dt_props, palette='viridis', ax=ax) # Plot Proportion
+                          ax.set_title(f'Document Proportion Comparison for "{col}"{plot_title_suffix}')
+                          ax.set_xlabel(x_axis_label); ax.set_ylabel('Proportion of Documents'); # Update Y label
+                          ax.tick_params(axis='x', rotation=label_rotation, labelsize='small')
                           if label_rotation != 0: plt.setp(ax.get_xticklabels(), ha='right', rotation_mode='anchor')
-                          ax.grid(True, axis='y'); fig.tight_layout(); plt.show()
+                          ax.grid(True, axis='y');
+                          ax.legend(title='DataFrame', bbox_to_anchor=(1.05, 1), loc='upper left'); # Ensure legend is shown
+                          fig.tight_layout(rect=[0, 0, 0.9, 1]); # Adjust layout for legend
+                          plt.show()
     else:
         print("\nNo specific dataset comparisons requested.")
 
-
     print("\n" + "="*80); print("EDA Complete."); print("="*80)
 
-
 # --- Example Function Call ---
+# (Example call structure remains the same)
+
 # Create placeholder DataFrames for the example call to run without error
 # --- REPLACE THIS WITH YOUR ACTUAL DATAFRAMES ---
 placeholder_data = {'processed_text': ['Text A Train Document about apples', 'TEXT B ABOUT MODELS and oranges', 'Train specific Words here apples oranges the a is'], 'file extension': ['.pdf', '.docx', '.pdf'], 'number of tokens': [100, 200, 150], 'token bucket': ['100-500', '100-500', '100-500'], 'RCC': ['ClassA', 'ClassB', 'ClassA'], 'FileModifiedTime': pd.to_datetime(['2022-01-10', '2022-05-15', '2023-03-20']), 'LOB': ['Finance', 'HR', 'Finance']}
 placeholder_data_oot = {'processed_text': ['Text c oot version with apples', 'OOT unique content no fruit the'], 'file extension': ['.txt', '.txt'], 'number of tokens': [50, 60], 'token bucket': ['0-100', '0-100'], 'RCC': ['ClassA', 'ClassC'], 'FileModifiedTime': pd.to_datetime(['2023-01-15', '2023-02-20']), 'LOB': ['Finance', 'Legal']}
 prod_texts = [f'Prod text {i} example Content for Production apples' for i in range(100)] + [f'Prod text {i} Different Words maybe oranges the' for i in range(100,200)]
-placeholder_data_prod = {'processed_text': prod_texts, 'file extension': np.random.choice(['.msg', '.eml'], 200), 'number of tokens': np.random.randint(500, 2000, 200), 'token bucket': ['501-1000'] * 200, 'FileModifiedTime': pd.to_datetime(pd.date_range('2023-06-01', periods=200, freq='D')), 'LOB': np.random.choice(['HR', 'Operations'], 200)}
+placeholder_data_prod = {'processed_text': prod_texts, 'file extension': np.random.choice(['.msg', '.eml'], 200), 'number of tokens': np.random.randint(500, 2000, 200), 'token bucket': ['501-1000'] * 200, 'FileModifiedTime': pd.to_datetime(pd.date_range('2023-06-01', periods=200, freq='D')), 'LOB': np.random.choice(['HR', 'Operations'], 200)} # Prod data in 2023 only
 train_df = pd.DataFrame(placeholder_data)
 test_df = pd.DataFrame(placeholder_data).copy(); test_df['processed_text'] = ['Test text a document with apples', 'Test b about evaluation and oranges', 'Test specific Words here too maybe bananas the']; test_df['LOB'] = ['Finance', 'HR', 'Finance']; test_df['RCC'] = ['ClassA', 'ClassB', 'ClassB']
 oot_df = pd.DataFrame(placeholder_data_oot)
@@ -762,7 +780,7 @@ COMMON_CONTINUOUS_COLS = ['number of tokens']
 SPECIFIC_DISCRETE_COLS = ['LOB']
 SPECIFIC_DATETIME_COLS = ['FileModifiedTime']
 REFERENCE_DF_NAME = 'train'
-BASE_SAVE_DIRECTORY = "./eda_outputs_final_v8" # Example save path
+BASE_SAVE_DIRECTORY = "./eda_outputs_final_v9" # Example save path
 COMPARISON_PAIRS = [('oot', 'prod'), ('train', 'test'), ('train', 'val')]
 
 # Call the comprehensive EDA function with new parameters
@@ -782,11 +800,11 @@ comprehensive_nlp_eda(
     plot_width=20,
     year_bucket_threshold=3,
     year_bucket_size=1,
-    analyze_text_content=True,    # Enable Section 7
-    analyze_ngrams=True,          # Enable N-grams and overlap table
+    analyze_text_content=True,
+    analyze_ngrams=True,
     top_n_terms=15,
     analyze_bigrams=True,
     ngram_analysis_sample_size=500,
-    ttr_min_samples_per_class = 5, # Lower threshold for example data
+    ttr_min_samples_per_class = 5,
     specific_comparisons=COMPARISON_PAIRS
 )

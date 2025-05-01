@@ -1,3 +1,12 @@
+# Find texts associated with multiple classes
+conflicting_texts = df.groupby('text')['class'].nunique()
+conflicting_texts = conflicting_texts[conflicting_texts > 1].index
+
+# Drop rows where text is in the list of conflicting texts
+df_cleaned = df[~df['text'].isin(conflicting_texts)]
+
+
+
 import pandas as pd
 import numpy as np
 from sklearn.metrics import (

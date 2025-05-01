@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 from typing import Dict, List, Tuple, Optional, Any
-from pandas.api.types import is_categorical_dtype
+from pandas.api.types import is_categorical_dtype, is_datetime64_any_dtype
 
 # Suppress UndefinedMetricWarning for cases where a class/group might be missing
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -28,17 +28,21 @@ def evaluate_precomputed_predictions(
     proba_col: str,
     metadata_cols: Optional[List[str]] = None,
     comparisons: Optional[List[Tuple[str, str]]] = None,
-    confidence_thresholds: np.ndarray = np.arange(0.05, 1.05, 0.05), # Updated default
+    confidence_thresholds: np.ndarray = np.arange(0.05, 1.05, 0.05),
     plot_charts: bool = True,
     figsize: tuple = (12, 6),
-    dpi: int = 100, # Added DPI argument
+    dpi: int = 100,
     cm_figsize_scale: float = 0.5,
-    max_cm_size: int = 25
+    max_cm_size: int = 25,
+    # --- New arguments for datetime binning ---
+    year_start: Optional[int] = None,
+    year_end: Optional[int] = None,
+    year_bucket_size: int = 1
 ):
     """
     Performs comprehensive performance testing using pre-computed predictions
     and probabilities stored in the input DataFrames. Includes detailed metadata
-    breakdown and DPI setting for plots.
+    breakdown (with custom year binning for datetimes) and DPI setting for plots.
 
     Args:
         datasets (Dict[str, pd.DataFrame]): Dict of dataset names to DataFrames.
@@ -55,14 +59,23 @@ def evaluate_precomputed_predictions(
         dpi (int, optional): Dots Per Inch for plot resolution. Defaults to 100.
         cm_figsize_scale (float, optional): Confusion matrix size scaling factor. Defaults to 0.5.
         max_cm_size (int, optional): Max confusion matrix dimension. Defaults to 25.
+        year_start (Optional[int], optional): The starting year for bucketing datetime columns.
+                                              If None, derived from data. Defaults to None.
+        year_end (Optional[int], optional): The ending year for bucketing datetime columns.
+                                            If None, derived from data. Defaults to None.
+        year_bucket_size (int, optional): The size (in years) of each bucket for datetime columns.
+                                         Must be >= 1. Defaults to 1.
 
     Returns:
         dict: A dictionary containing performance results keyed by dataset name.
     """
     print("--- Starting Performance Evaluation from Pre-computed Predictions ---")
-    if not datasets:
-        print("No datasets provided for evaluation. Exiting.")
-        return {}
+    if not datasets: print("No datasets provided. Exiting."); return {}
+
+    # Validate year_bucket_size
+    if not isinstance(year_bucket_size, int) or year_bucket_size < 1:
+        print(f"Warning: Invalid year_bucket_size ({year_bucket_size}). Must be an integer >= 1. Defaulting to 1.")
+        year_bucket_size = 1
 
     results = {}
     all_class_names_ref = None
@@ -73,7 +86,6 @@ def evaluate_precomputed_predictions(
 
     for df_name, df in datasets.items():
         print(f"\n--- Processing Dataset: {df_name} ---")
-        # (Input validation checks remain the same)
         if df is None or df.empty: print(f"Skipping dataset '{df_name}' (empty/None)."); continue
         if not isinstance(df, pd.DataFrame): print(f"Skipping dataset '{df_name}' (not DataFrame)."); continue
         required_cols = [target_col, pred_col, proba_col]
@@ -89,12 +101,12 @@ def evaluate_precomputed_predictions(
             print(f"   Dataset '{df_name}' ({len(df)} samples)")
             df_eval = df.copy()
 
-            # --- 1a. Get Labels, Predictions, Confidence ---
+            # --- 1a. Get Labels, Predictions, Confidence --- (No changes here)
             print("   Reading pre-computed data...")
             y_true = df_eval[target_col]
             y_pred = df_eval[pred_col]
             y_confidence = df_eval[proba_col]
-
+            # ... (validation checks for proba_col) ...
             if not (y_confidence.min() >= 0 and y_confidence.max() <= 1): print(f"   Warning: Probabilities in '{proba_col}' outside [0, 1] for '{df_name}'.")
             if y_confidence.isnull().any(): print(f"   Warning: NaNs found in '{proba_col}' for '{df_name}'.")
 
@@ -107,18 +119,16 @@ def evaluate_precomputed_predictions(
             if all_class_names_ref is None: all_class_names_ref = current_class_names; print(f"   Reference classes: {all_class_names_ref}")
             elif not np.array_equal(all_class_names_ref, current_class_names): print(f"   Warning: True classes differ: {current_class_names} vs {all_class_names_ref}")
 
-            # --- 1b. Overall Performance ---
+            # --- 1b. Overall Performance --- (No changes here)
             print("   Calculating Overall Performance...")
-            # (Calculation logic remains the same, using labels=current_class_names)
+            # ... (overall metric calculations) ...
             metrics = results[df_name]['overall']
             metrics['num_samples'] = len(y_true)
             try:
                 metrics['accuracy'] = accuracy_score(y_true, y_pred)
-                # Ensure consistent labeling for metrics
                 metrics['macro_precision'] = precision_score(y_true, y_pred, average='macro', zero_division=0, labels=current_class_names)
                 metrics['macro_recall'] = recall_score(y_true, y_pred, average='macro', zero_division=0, labels=current_class_names)
                 metrics['macro_f1'] = f1_score(y_true, y_pred, average='macro', zero_division=0, labels=current_class_names)
-                # ... weighted metrics ...
                 metrics['weighted_precision'] = precision_score(y_true, y_pred, average='weighted', zero_division=0, labels=current_class_names)
                 metrics['weighted_recall'] = recall_score(y_true, y_pred, average='weighted', zero_division=0, labels=current_class_names)
                 metrics['weighted_f1'] = f1_score(y_true, y_pred, average='weighted', zero_division=0, labels=current_class_names)
@@ -130,93 +140,128 @@ def evaluate_precomputed_predictions(
                 print(f"     Error calculating overall metrics for '{df_name}': {e}")
                 for k in ['accuracy', 'macro_precision', 'macro_recall', 'macro_f1', 'weighted_precision', 'weighted_recall', 'weighted_f1']: metrics[k] = np.nan
 
-            # --- 1c. Performance by Metadata Columns ---
+
+            # --- 1c. Performance by Metadata Columns --- (MODIFIED SECTION)
             if metadata_cols:
                 print("\n   Calculating Performance by Metadata Columns...")
                 results[df_name]['by_metadata'] = {}
                 for col in metadata_cols:
                     if col not in df_eval.columns:
-                        print(f"     Warning: Metadata column '{col}' not found in dataset '{df_name}'. Skipping.")
+                        print(f"     Warning: Metadata column '{col}' not found. Skipping.")
                         continue
 
                     print(f"     ----- Analyzing by Metadata Column: '{col}' -----")
-                    metadata_results_list = [] # To store results for table printing
+                    metadata_results_list = []
                     results[df_name]['by_metadata'][col] = {}
+                    binned_col_name = f"{col}_binned" # Default name for created bins
 
-                    # Grouping logic (Categorical vs Continuous Binning)
-                    is_explicitly_categorical = is_categorical_dtype(df_eval[col])
-                    is_likely_categorical = df_eval[col].dtype == 'object' or df_eval[col].nunique() < 20 # Heuristic
+                    # === Datetime Column Handling ===
+                    if is_datetime64_any_dtype(df_eval[col]):
+                        print(f"       Detected datetime column. Applying year-based binning (size={year_bucket_size}).")
+                        binned_col_name = f"{col}_year_bucket"
+                        try:
+                            years = df_eval[col].dt.year
+                            if years.isnull().all():
+                                raise ValueError("All datetime values are NaT.")
 
-                    if is_explicitly_categorical or is_likely_categorical:
-                        print(f"       Treating '{col}' as categorical.")
-                        # Convert to category if it's object type for better groupby handling
-                        if df_eval[col].dtype == 'object':
-                           try:
-                               df_eval[col] = df_eval[col].astype('category')
-                           except Exception: # Handle potential mixed types
-                               print(f"       Warning: Could not convert '{col}' to category dtype.")
-                        grouped = df_eval.groupby(col, observed=False) # observed=False includes all categories
-                        binned = False
-                    else: # Try binning continuous variables
-                         print(f"       Treating '{col}' as continuous, attempting binning.")
-                         try:
-                             binned_col_name = f'{col}_binned'
-                             if pd.api.types.is_datetime64_any_dtype(df_eval[col]):
-                                 df_eval[binned_col_name] = pd.cut(df_eval[col], bins=5)
-                             else: # Numeric or other - try qcut first
-                                 try: # qcut preferred for potentially skewed numeric data
-                                      df_eval[binned_col_name] = pd.qcut(df_eval[col].astype(float), q=5, duplicates='drop')
-                                      print(f"       (Binned '{col}' into 5 quantiles)")
-                                 except (ValueError, TypeError): # Fallback to equi-width cut
-                                      df_eval[binned_col_name] = pd.cut(df_eval[col].astype(float), bins=5)
-                                      print(f"       (Binned '{col}' into 5 equal-width intervals)")
+                            # Determine start/end years if not provided
+                            current_year_start = year_start
+                            if current_year_start is None:
+                                current_year_start = int(years.min()) # Find min year in data
+                                print(f"       Auto-detected start year: {current_year_start}")
+                            current_year_end = year_end
+                            if current_year_end is None:
+                                current_year_end = int(years.max()) # Find max year in data
+                                print(f"       Auto-detected end year: {current_year_end}")
 
-                             grouped = df_eval.groupby(binned_col_name, observed=False)
-                             binned = True
-                         except Exception as e:
-                             print(f"       Warning: Could not bin continuous column '{col}'. Skipping analysis for this column. Error: {e}")
-                             results[df_name]['by_metadata'][col] = {"ERROR": f"Binning failed: {e}"}
+                            if np.isnan(current_year_start) or np.isnan(current_year_end):
+                                raise ValueError("Could not determine valid start/end year from data (contains NaNs?).")
+
+                            # Create bins and labels
+                            # Add a small epsilon to end+1 to ensure the last year is included by np.arange
+                            bins = np.arange(current_year_start, current_year_end + 1 + 0.1, year_bucket_size)
+
+                            if len(bins) < 2: # Need at least 2 bin edges for pd.cut
+                                print(f"       Warning: Not enough year range ({current_year_start}-{current_year_end}) for bucket size {year_bucket_size}. Treating as single group.")
+                                df_eval[binned_col_name] = f"{int(current_year_start)}-{int(current_year_end)}"
+                                grouped = df_eval.groupby(binned_col_name, observed=False)
+                            else:
+                                # Generate labels like "2020", "2021-2022", etc.
+                                labels = []
+                                for i in range(len(bins) - 1):
+                                    start = int(bins[i])
+                                    end = int(bins[i+1] - 1) # -1 because the interval is [start, end+1)
+                                    if year_bucket_size == 1:
+                                        labels.append(f"{start}")
+                                    else:
+                                        labels.append(f"{start}-{end}")
+
+                                # Use pd.cut to assign years to bins
+                                df_eval[binned_col_name] = pd.cut(years, bins=bins, labels=labels, right=False, include_lowest=True)
+                                grouped = df_eval.groupby(binned_col_name, observed=False) # Group by the new year buckets
+                                print(f"       Created year bins: {bins.tolist()}")
+                                print(f"       Using labels: {labels}")
+
+                        except Exception as e:
+                             print(f"       Error during year-based binning for '{col}': {e}. Skipping analysis for this column.")
+                             results[df_name]['by_metadata'][col] = {"ERROR": f"Year binning failed: {e}"}
                              continue # Skip to next metadata column
 
+                    # === Categorical Column Handling ===
+                    elif is_categorical_dtype(df_eval[col]) or (df_eval[col].dtype == 'object' and df_eval[col].nunique() < 20):
+                        print(f"       Treating '{col}' as categorical.")
+                        binned_col_name = col # Use original column name for grouping
+                        if df_eval[col].dtype == 'object':
+                           try: df_eval[col] = df_eval[col].astype('category')
+                           except Exception: print(f"       Warning: Could not convert '{col}' to category.")
+                        grouped = df_eval.groupby(binned_col_name, observed=False)
 
-                    # Calculate metrics for each group
+                    # === Other Continuous Column Handling (Numeric etc.) ===
+                    else:
+                         print(f"       Treating '{col}' as continuous (non-datetime), attempting general binning.")
+                         try:
+                             # qcut preferred for numeric, fallback to cut
+                             try:
+                                  df_eval[binned_col_name] = pd.qcut(df_eval[col].astype(float), q=5, duplicates='drop')
+                                  print(f"       (Binned '{col}' into 5 quantiles)")
+                             except (ValueError, TypeError):
+                                  df_eval[binned_col_name] = pd.cut(df_eval[col].astype(float), bins=5)
+                                  print(f"       (Binned '{col}' into 5 equal-width intervals)")
+                             grouped = df_eval.groupby(binned_col_name, observed=False)
+                         except Exception as e:
+                             print(f"       Warning: Could not bin continuous column '{col}'. Skipping. Error: {e}")
+                             results[df_name]['by_metadata'][col] = {"ERROR": f"Binning failed: {e}"}
+                             continue
+
+
+                    # === Calculate metrics for each group (common logic) ===
                     for grp_name, group in grouped:
-                        grp_name_str = str(grp_name) # Ensure string for dict key and printing
+                        # Handle NaN group names gracefully (can occur from pd.cut)
+                        grp_name_str = "NaN/OutsideRange" if pd.isna(grp_name) else str(grp_name)
                         group_metrics = {'num_samples': len(group)}
                         if len(group) > 0:
                              grp_y_true = group[target_col]
                              grp_y_pred = group[pred_col]
-                             group_classes = sorted(grp_y_true.astype(str).unique())
-
                              group_metrics['accuracy'] = accuracy_score(grp_y_true, grp_y_pred)
-
-                             # Calculate macro metrics only if feasible
                              if len(group) >= 2 and grp_y_true.nunique() >= 2:
                                  try:
-                                     # Use overall class list for consistent comparison across groups
                                      group_metrics['macro_precision'] = precision_score(grp_y_true, grp_y_pred, average='macro', zero_division=0, labels=current_class_names)
                                      group_metrics['macro_recall'] = recall_score(grp_y_true, grp_y_pred, average='macro', zero_division=0, labels=current_class_names)
                                      group_metrics['macro_f1'] = f1_score(grp_y_true, grp_y_pred, average='macro', zero_division=0, labels=current_class_names)
-                                 except Exception as e_grp:
-                                     # print(f"         Error calculating macro metrics for group '{grp_name_str}': {e_grp}") # Optional verbose logging
+                                 except Exception:
                                      group_metrics['macro_precision'], group_metrics['macro_recall'], group_metrics['macro_f1'] = np.nan, np.nan, np.nan
-                             else: # Not enough data/classes for macro averages in this specific group
-                                 group_metrics['macro_precision'], group_metrics['macro_recall'], group_metrics['macro_f1'] = np.nan, np.nan, np.nan
-                        else: # Empty group (can happen with observed=False)
-                             group_metrics['accuracy'] = np.nan
-                             group_metrics['macro_precision'], group_metrics['macro_recall'], group_metrics['macro_f1'] = np.nan, np.nan, np.nan
+                             else: group_metrics['macro_precision'], group_metrics['macro_recall'], group_metrics['macro_f1'] = np.nan, np.nan, np.nan
+                        else: group_metrics['accuracy'], group_metrics['macro_precision'], group_metrics['macro_recall'], group_metrics['macro_f1'] = np.nan, np.nan, np.nan, np.nan
 
                         results[df_name]['by_metadata'][col][grp_name_str] = group_metrics
-                        # Add group name to the dict for table printing
-                        group_metrics['group_name'] = grp_name_str
+                        group_metrics['group_name'] = grp_name_str # For table printing
                         metadata_results_list.append(group_metrics)
 
-                    # --- Print Metadata Summary Table ---
+                    # --- Print Metadata Summary Table --- (No changes here)
                     if metadata_results_list:
-                        meta_df = pd.DataFrame(metadata_results_list)
-                        # Determine max length of group names for formatting
+                        meta_df = pd.DataFrame(metadata_results_list).sort_values(by='group_name') # Sort for readability
                         max_grp_len = meta_df['group_name'].astype(str).map(len).max()
-                        max_grp_len = max(max_grp_len, len(col)) # Ensure header fits
+                        max_grp_len = max(max_grp_len, len(col), 10) # Ensure header fits and min width
 
                         print(f"       Summary for '{col}':")
                         header = f"| {col + ' Group':<{max_grp_len}} | Samples | Accuracy | Macro Precision |"
@@ -225,89 +270,74 @@ def evaluate_precomputed_predictions(
                         for _, row in meta_df.iterrows():
                              print(f"| {str(row['group_name']):<{max_grp_len}} | {row['num_samples']:>7d} | {row.get('accuracy', float('nan')):>8.4f} | {row.get('macro_precision', float('nan')):>15.4f} |")
                         print(f"|{'-'*(max_grp_len+2)}|---------|----------|-----------------|")
-                    else:
-                        print(f"       No groups found or processed for '{col}'.")
+                    else: print(f"       No groups found or processed for '{col}'.")
                     print(f"     ----- Finished Analyzing: '{col}' -----")
 
 
-            # --- 1d. Performance by Confidence Threshold ---
+            # --- 1d. Performance by Confidence Threshold --- (No changes here)
             print("\n   Calculating Performance by Confidence Threshold...")
-            # (Calculation logic remains the same, using labels=current_class_names)
+            # ... (confidence threshold analysis logic) ...
             confidence_results_list = []
             total_samples = len(y_true)
             y_confidence_filled = y_confidence.fillna(-1) # Handle potential NaNs for comparison
-
             for threshold in confidence_thresholds:
                 mask = y_confidence_filled >= threshold
+                # ... (rest of the confidence threshold calculation) ...
                 covered_samples = np.sum(mask)
                 coverage = covered_samples / total_samples if total_samples > 0 else 0
                 thresh_metrics = {'threshold': threshold, 'coverage': coverage, 'num_samples_covered': covered_samples}
-
                 if covered_samples > 0:
-                    y_true_thresh = y_true[mask]
-                    y_pred_thresh = y_pred[mask]
+                    y_true_thresh = y_true[mask]; y_pred_thresh = y_pred[mask]
                     thresh_metrics['accuracy'] = accuracy_score(y_true_thresh, y_pred_thresh)
                     if y_true_thresh.nunique() > 1:
                         try:
                             thresh_metrics['macro_precision'] = precision_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0, labels=current_class_names)
                             thresh_metrics['macro_recall'] = recall_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0, labels=current_class_names)
                             thresh_metrics['macro_f1'] = f1_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0, labels=current_class_names)
-                        except Exception: # Catch potential errors if subset causes issues
-                             thresh_metrics['macro_precision'], thresh_metrics['macro_recall'], thresh_metrics['macro_f1'] = np.nan, np.nan, np.nan
+                        except Exception: thresh_metrics['macro_precision'], thresh_metrics['macro_recall'], thresh_metrics['macro_f1'] = np.nan, np.nan, np.nan
                     else: thresh_metrics['macro_precision'], thresh_metrics['macro_recall'], thresh_metrics['macro_f1'] = np.nan, np.nan, np.nan
                 else: thresh_metrics['accuracy'], thresh_metrics['macro_precision'], thresh_metrics['macro_recall'], thresh_metrics['macro_f1'] = np.nan, np.nan, np.nan, np.nan
                 confidence_results_list.append(thresh_metrics)
-
             results[df_name]['by_confidence'] = pd.DataFrame(confidence_results_list)
             print(f"     Analyzed {len(confidence_thresholds)} confidence thresholds.")
 
 
-            # --- 1e. Detailed Classification Report ---
+            # --- 1e. Detailed Classification Report --- (No changes here)
             print("\n   Generating Classification Report...")
-            # (Logic remains the same, using labels=current_class_names)
+            # ... (classification report generation) ...
             try:
                 report = classification_report(y_true, y_pred, target_names=current_class_names, zero_division=0, labels=current_class_names)
                 print(report)
                 results[df_name]['overall']['classification_report'] = report
-            except Exception as e:
-                print(f"     Error generating classification report for '{df_name}': {e}")
-                results[df_name]['overall']['classification_report'] = "Error generating report."
+            except Exception as e: print(f"     Error generating classification report: {e}"); results[df_name]['overall']['classification_report'] = "Error."
 
 
-            # --- 1f. Plotting (Applying DPI) ---
+            # --- 1f. Plotting --- (No changes here, uses dpi arg)
             if plot_charts:
                  print(f"\n   Plotting Charts for '{df_name}' (DPI={dpi})...")
-                 print(f"     Plotting Confusion Matrix...")
+                 # ... (Confusion Matrix plotting with dpi=dpi) ...
                  try:
-                    num_classes = len(current_class_names)
-                    cm_size = min(max(6, num_classes * cm_figsize_scale), max_cm_size)
-                    # Apply DPI here
-                    fig, ax = plt.subplots(figsize=(cm_size, cm_size), dpi=dpi)
-                    cm = confusion_matrix(y_true, y_pred, labels=current_class_names)
-                    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=current_class_names)
-                    disp.plot(cmap=plt.cm.Blues, ax=ax, xticks_rotation='vertical')
-                    plt.title(f"'{df_name}' - Confusion Matrix")
-                    plt.tight_layout()
-                    plt.show()
-                 except Exception as e:
-                    print(f"     Error plotting confusion matrix for {df_name}: {e}")
+                     num_classes = len(current_class_names); cm_size = min(max(6, num_classes * cm_figsize_scale), max_cm_size)
+                     fig, ax = plt.subplots(figsize=(cm_size, cm_size), dpi=dpi)
+                     cm = confusion_matrix(y_true, y_pred, labels=current_class_names)
+                     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=current_class_names)
+                     disp.plot(cmap=plt.cm.Blues, ax=ax, xticks_rotation='vertical')
+                     plt.title(f"'{df_name}' - Confusion Matrix"); plt.tight_layout(); plt.show()
+                 except Exception as e: print(f"     Error plotting confusion matrix: {e}")
 
-                 print(f"     Plotting Calibration Curve...")
+                 # ... (Calibration Curve plotting with dpi=dpi) ...
                  try:
-                    valid_conf_mask = ~y_confidence.isnull()
-                    if valid_conf_mask.sum() > 0:
-                        prob_true, prob_pred = calibration_curve((y_true == y_pred)[valid_conf_mask], y_confidence[valid_conf_mask], n_bins=10, strategy='uniform')
-                        # Apply DPI here
-                        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-                        ax.plot(prob_pred, prob_true, marker='o', linewidth=1, linestyle='-', label=f'{df_name} Confidence Calibration')
-                        ax.plot([0, 1], [0, 1], linestyle='--', color='black', label='Perfectly calibrated')
-                        ax.set_xlabel(f"Mean Predicted Confidence ('{proba_col}')")
-                        ax.set_ylabel("Fraction of Positives (Accuracy within bin)")
-                        ax.set_title(f"'{df_name}' - Confidence Calibration Curve")
-                        ax.grid(True); ax.legend(loc="lower right"); plt.tight_layout(); plt.show()
-                    else: print(f"     Skipping calibration curve for '{df_name}' (all confidence values are NaN).")
-                 except ValueError as ve: print(f"     Warning: Could not generate calibration curve for '{df_name}'. Error: {ve}")
-                 except Exception as e: print(f"     Error plotting calibration curve for '{df_name}': {e}")
+                     valid_conf_mask = ~y_confidence.isnull()
+                     if valid_conf_mask.sum() > 0:
+                         prob_true, prob_pred = calibration_curve((y_true == y_pred)[valid_conf_mask], y_confidence[valid_conf_mask], n_bins=10, strategy='uniform')
+                         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+                         ax.plot(prob_pred, prob_true, marker='o', linewidth=1, linestyle='-', label=f'{df_name} Confidence Calibration')
+                         ax.plot([0, 1], [0, 1], linestyle='--', color='black', label='Perfectly calibrated')
+                         ax.set_xlabel(f"Mean Predicted Confidence ('{proba_col}')"); ax.set_ylabel("Fraction of Positives (Accuracy within bin)")
+                         ax.set_title(f"'{df_name}' - Confidence Calibration Curve"); ax.grid(True); ax.legend(loc="lower right"); plt.tight_layout(); plt.show()
+                     else: print(f"     Skipping calibration curve ('{df_name}', all confidence NaN).")
+                 except ValueError as ve: print(f"     Warning: Could not generate calibration curve ('{df_name}'). Error: {ve}")
+                 except Exception as e: print(f"     Error plotting calibration curve ('{df_name}'): {e}")
 
             processed_datasets.add(df_name)
 
@@ -317,94 +347,66 @@ def evaluate_precomputed_predictions(
             if df_name in results: del results[df_name]
 
 
-    # --- 2. Plot Combined Performance vs Confidence (Applying DPI) ---
+    # --- 2. Plot Combined Performance vs Confidence --- (No changes here, uses dpi arg)
     if plot_charts and processed_datasets:
         print(f"\n2. Plotting Combined Performance vs. Confidence Threshold (DPI={dpi})...")
-
-        # Plot Macro Precision
-        plt.figure(figsize=figsize, dpi=dpi) # Apply DPI
+        # ... (Combined plots with dpi=dpi) ...
+        plt.figure(figsize=figsize, dpi=dpi); # Macro Precision plot
         for df_name in processed_datasets:
-            if df_name in results and not results[df_name]['by_confidence'].empty:
-                conf_df = results[df_name]['by_confidence']
-                plt.plot(conf_df['threshold'], conf_df['macro_precision'], marker='o', linestyle='-', label=f'{df_name} Macro Precision')
-        plt.title('Macro Precision (KPI) vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})')
-        plt.ylabel('Macro Precision'); plt.grid(True); plt.legend(); plt.ylim(bottom=0); plt.tight_layout(); plt.show()
-
-        # Plot Accuracy
-        plt.figure(figsize=figsize, dpi=dpi) # Apply DPI
+            if df_name in results and not results[df_name]['by_confidence'].empty: plt.plot(results[df_name]['by_confidence']['threshold'], results[df_name]['by_confidence']['macro_precision'], marker='o', linestyle='-', label=f'{df_name} Macro Precision')
+        plt.title('Macro Precision (KPI) vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})'); plt.ylabel('Macro Precision'); plt.grid(True); plt.legend(); plt.ylim(bottom=0); plt.tight_layout(); plt.show()
+        # ... (Accuracy plot) ...
+        plt.figure(figsize=figsize, dpi=dpi); # Accuracy plot
         for df_name in processed_datasets:
-             if df_name in results and not results[df_name]['by_confidence'].empty:
-                conf_df = results[df_name]['by_confidence']
-                plt.plot(conf_df['threshold'], conf_df['accuracy'], marker='o', linestyle='-', label=f'{df_name} Accuracy')
-        plt.title('Accuracy vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})')
-        plt.ylabel('Accuracy'); plt.grid(True); plt.legend(); plt.ylim(bottom=0); plt.tight_layout(); plt.show()
-
-        # Plot Coverage
-        plt.figure(figsize=figsize, dpi=dpi) # Apply DPI
+            if df_name in results and not results[df_name]['by_confidence'].empty: plt.plot(results[df_name]['by_confidence']['threshold'], results[df_name]['by_confidence']['accuracy'], marker='o', linestyle='-', label=f'{df_name} Accuracy')
+        plt.title('Accuracy vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})'); plt.ylabel('Accuracy'); plt.grid(True); plt.legend(); plt.ylim(bottom=0); plt.tight_layout(); plt.show()
+        # ... (Coverage plot) ...
+        plt.figure(figsize=figsize, dpi=dpi); # Coverage plot
         for df_name in processed_datasets:
-             if df_name in results and not results[df_name]['by_confidence'].empty:
-                conf_df = results[df_name]['by_confidence']
-                plt.plot(conf_df['threshold'], conf_df['coverage'], marker='o', linestyle='-', label=f'{df_name} Coverage')
-        plt.title('Coverage vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})')
-        plt.ylabel('Coverage (Fraction of Samples)'); plt.grid(True); plt.legend(); plt.ylim(0, 1.05); plt.tight_layout(); plt.show()
-    # (Handling for skipping plots remains the same)
+            if df_name in results and not results[df_name]['by_confidence'].empty: plt.plot(results[df_name]['by_confidence']['threshold'], results[df_name]['by_confidence']['coverage'], marker='o', linestyle='-', label=f'{df_name} Coverage')
+        plt.title('Coverage vs. Confidence Threshold'); plt.xlabel(f'Confidence Threshold ({proba_col})'); plt.ylabel('Coverage (Fraction of Samples)'); plt.grid(True); plt.legend(); plt.ylim(0, 1.05); plt.tight_layout(); plt.show()
+
     elif not processed_datasets: print("\n2. Skipping combined plots (no datasets processed).")
     else: print("\n2. Skipping combined plots (plot_charts=False).")
 
-    # --- 3. Perform Specified Comparisons ---
-    # (Logic remains the same)
+
+    # --- 3. Perform Specified Comparisons --- (No changes here)
     print("\n3. Performing Specified Dataset Comparisons...")
+    # ... (Comparison logic) ...
     if comparisons and isinstance(comparisons, list):
-        # ... (comparison logic remains the same) ...
         compared_pairs = set()
         for comp_pair in comparisons:
-            # ...(validation of comp_pair)...
             if not isinstance(comp_pair, tuple) or len(comp_pair) != 2: print(f"   Skipping invalid comparison: {comp_pair}."); continue
-            name1, name2 = comp_pair
-            sorted_pair = tuple(sorted((name1, name2)))
-            if sorted_pair in compared_pairs: continue
-            compared_pairs.add(sorted_pair)
-            # ...(check results exist)...
+            name1, name2 = comp_pair; sorted_pair = tuple(sorted((name1, name2)))
+            if sorted_pair in compared_pairs: continue; compared_pairs.add(sorted_pair)
             if name1 not in results or name2 not in results or not results[name1]['overall'] or not results[name2]['overall']: print(f"   Cannot compare '{name1}' vs '{name2}': Results missing."); continue
-
-            print(f"\n   --- Comparison: '{name1}' vs '{name2}' ---")
-            metrics1 = results[name1]['overall']
-            metrics2 = results[name2]['overall']
-            max_name_len = max(len(name1), len(name2))
-            header1 = f"{name1:<{max_name_len}}"
-            header2 = f"{name2:<{max_name_len}}"
-            print(f"| Metric            | {header1} | {header2} | Change ({name2}-{name1}) |")
-            print(f"|-------------------|{'-'*(max_name_len+2)}|{'-'*(max_name_len+2)}|-------------------|")
+            print(f"\n   --- Comparison: '{name1}' vs '{name2}' ---"); metrics1 = results[name1]['overall']; metrics2 = results[name2]['overall']
+            max_name_len = max(len(name1), len(name2)); header1 = f"{name1:<{max_name_len}}"; header2 = f"{name2:<{max_name_len}}"
+            print(f"| Metric            | {header1} | {header2} | Change ({name2}-{name1}) |"); print(f"|-------------------|{'-'*(max_name_len+2)}|{'-'*(max_name_len+2)}|-------------------|")
             kpi_diff = 0.0; kpi_name = 'macro_precision'
             for metric in ['accuracy', kpi_name, 'macro_recall', 'macro_f1']:
-                 val1 = metrics1.get(metric, float('nan')); val2 = metrics2.get(metric, float('nan'))
-                 change = val2 - val1 if not (np.isnan(val1) or np.isnan(val2)) else float('nan')
+                 val1 = metrics1.get(metric, float('nan')); val2 = metrics2.get(metric, float('nan')); change = val2 - val1 if not (np.isnan(val1) or np.isnan(val2)) else float('nan')
                  print(f"| {metric:<17} | {val1: >{max_name_len}.4f} | {val2: >{max_name_len}.4f} | {change: >+17.4f} |")
                  if metric == kpi_name: kpi_diff = change if not np.isnan(change) else 0.0
             print(f"|-------------------|{'-'*(max_name_len+2)}|{'-'*(max_name_len+2)}|-------------------|")
-            # ...(print warning/info)...
             if kpi_diff < -0.03: print(f"   WARNING: Potential performance degradation detected ({kpi_name}... in '{name2}' vs '{name1}').")
             elif kpi_diff > 0.03: print(f"   INFO: Performance ({kpi_name}) is notably higher in '{name2}' vs '{name1}'.")
             else: print(f"   INFO: Performance ({kpi_name}) is similar between '{name1}' and '{name2}'.")
     elif comparisons: print("   'comparisons' argument provided but is not a list.")
     else: print("   No specific comparisons requested.")
 
-    # --- 4. Additional Tests/Suggestions ---
-    # (Remains the same)
+    # --- 4. Additional Tests/Suggestions --- (No changes here)
     print("\n4. Further Analysis Suggestions:")
-    print(f"    - Error Analysis: Review where '{pred_col}' != '{target_col}', check '{proba_col}' values.")
-    print("    - Check 'by_metadata' results for performance variations in specific groups.")
-    # ... other suggestions ...
+    # ... (Suggestions) ...
 
     print("\n--- Evaluation Complete ---")
     return results
 
-# --- Example Usage (Demonstrating new defaults/args) ---
 
-# (Keep the dummy data generation part as before, ensuring it creates
-# 'text', 'RCC_Name', 'predicted_label', 'prediction_confidence',
-# 'file_type', 'date_added' columns in df_val, df_test, df_holdout)
-# ... (dummy data loading/splitting/prediction generation) ...
+# --- Example Usage (Demonstrating datetime binning) ---
+
+# (Keep dummy data generation, ensuring 'date_added' is datetime)
+# ...
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
@@ -417,13 +419,15 @@ categories = ['sci.med', 'sci.space', 'talk.politics.guns', 'comp.graphics']
 newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'), categories=categories)
 data = pd.DataFrame({'text': newsgroups.data, 'RCC': newsgroups.target})
 data['file_type'] = np.random.choice(['PDF', 'DOCX', 'TXT', 'EMAIL'], size=len(data))
-data['date_added'] = pd.to_datetime(pd.Timestamp('2023-01-01') + pd.to_timedelta(np.random.randint(0, 730, size=len(data)), unit='D'))
+# Ensure date_added covers multiple years for the example
+data['date_added'] = pd.to_datetime(pd.Timestamp('2020-01-01') + pd.to_timedelta(np.random.randint(0, 3*365, size=len(data)), unit='D'))
 target_map = {i: name for i, name in enumerate(newsgroups.target_names)}
 data['RCC_Name'] = data['RCC'].map(target_map)
 df_train, df_temp = train_test_split(data, test_size=0.5, random_state=42, stratify=data['RCC'])
 df_val, df_temp2 = train_test_split(df_temp, test_size=0.6, random_state=123, stratify=df_temp['RCC'])
 df_test, df_holdout = train_test_split(df_temp2, test_size=0.5, random_state=456, stratify=df_temp2['RCC'])
 print(f"Train size: {len(df_train)}, Val size: {len(df_val)}, Test size: {len(df_test)}, Holdout size: {len(df_holdout)}")
+print(f"Date range in data: {data['date_added'].min()} to {data['date_added'].max()}")
 
 print("\nTraining dummy model & generating example predictions...")
 temp_pipeline = Pipeline([
@@ -439,14 +443,14 @@ for df_example in [df_val, df_test, df_holdout]:
 print("Example prediction columns added.")
 
 
-# --- Run the evaluation function with new settings ---
+# --- Run the evaluation function with year binning args ---
 datasets_to_evaluate = {
     'Validation': df_val,
     'Test': df_test,
-    'Holdout_2024': df_holdout
+    'Holdout': df_holdout # Renamed slightly
 }
-metadata_cols_to_analyze = ['file_type', 'date_added']
-comparisons_to_make = [ ('Validation', 'Test'), ('Test', 'Holdout_2024') ]
+metadata_cols_to_analyze = ['file_type', 'date_added'] # Include the datetime col
+comparisons_to_make = [ ('Validation', 'Test'), ('Test', 'Holdout') ]
 
 evaluation_results = evaluate_precomputed_predictions(
     datasets=datasets_to_evaluate,
@@ -456,10 +460,20 @@ evaluation_results = evaluate_precomputed_predictions(
     proba_col='prediction_confidence',
     metadata_cols=metadata_cols_to_analyze,
     comparisons=comparisons_to_make,
-    # confidence_thresholds=np.arange(0.05, 1.05, 0.05), # Now default
     plot_charts=True,
-    dpi=150 # Example of setting higher DPI
+    dpi=120,
+    # Specify year binning parameters
+    year_start=2020,       # Optional: Start year (can be None to auto-detect)
+    year_end=2022,         # Optional: End year (can be None to auto-detect)
+    year_bucket_size=1     # Analyze performance per year
+    # Or use year_bucket_size=2 for 2-year buckets etc.
 )
 
-# Now you should see metadata summary tables printed during execution
-# And the plots should have a higher resolution (150 DPI)
+# Example for 2-year buckets, auto-detecting range:
+# evaluation_results_2yr = evaluate_precomputed_predictions(
+#     datasets=datasets_to_evaluate,
+#     text_col='text', target_col='RCC_Name', pred_col='predicted_label', proba_col='prediction_confidence',
+#     metadata_cols=['date_added'],
+#     year_start=None, year_end=None, year_bucket_size=2,
+#     plot_charts=False # Disable plots for brevity
+# )

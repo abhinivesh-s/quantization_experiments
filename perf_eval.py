@@ -1,3 +1,10 @@
+# Annotate each point with its y-value
+for i in range(len(x)):
+    ax1.text(x[i], y[i], f'{y[i]:.2f}', ha='center', va='bottom')
+
+
+
+
 # Find texts associated with multiple classes
 conflicting_texts = df.groupby('text')['class'].nunique()
 conflicting_texts = conflicting_texts[conflicting_texts > 1].index

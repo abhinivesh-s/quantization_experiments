@@ -1,0 +1,39 @@
+Yes, you are correct—**precision** is the most appropriate KPI to track in your described scenario. Below is a formal write-up justifying this metric selection in the context of your multiclass text classification NLP problem:
+
+---
+
+### **Metric Selection Justification: Precision as the Primary KPI**
+
+#### **Problem Context**
+
+We are addressing a multiclass text classification task where the model is applied to a restricted subset of the overall population. This subset is pre-filtered using a similarity-based input control mechanism designed to reduce noise and increase the relevance of model inputs. Within this filtered population, it is crucial that model predictions are highly reliable, as erroneous predictions may lead to significant downstream costs (e.g., incorrect automation, poor user experience, or reputational damage).
+
+#### **Evaluation Objective**
+
+The core objective is **not to classify every instance**, but rather to **ensure that whenever the model does make a prediction, it is highly likely to be correct**. Therefore, false positives—i.e., confidently incorrect predictions—are particularly undesirable. This aligns directly with the goal of maximizing **precision**.
+
+#### **Why Precision?**
+
+Precision is defined as:
+
+\[
+\text{Precision} = \frac{\text{True Positives}}{\text{True Positives} + \text{False Positives}}
+\]
+
+In a multiclass context, macro or weighted precision may be used, depending on class imbalance considerations.
+
+Precision quantifies the **proportion of predicted instances that are actually correct**. In your use case, high precision ensures that:
+- The model only "speaks" when it is confident.
+- Predictions made on the controlled input space are trustworthy.
+- Errors (false positives) are minimized, which is crucial since this population is pre-selected to be high-impact or sensitive.
+
+This is especially important given that the input control mechanism has already filtered out the "hard" or ambiguous cases to some extent. The expectation is that **every prediction the model makes post-filtering should be actionable and accurate**—a situation where **precision takes precedence over recall**.
+
+#### **Why Not Recall or F1-Score?**
+
+- **Recall** (the proportion of actual instances correctly predicted) is less critical here because the model is not expected to capture all relevant cases from the entire population—only to be correct when it does make a prediction.
+- **F1-score** balances precision and recall, but in this case, maximizing precision even at the expense of recall is more aligned with the business objective. Hence, F1 may dilute this focus.
+
+#### **Conclusion**
+
+Given the selective application of the model via input filtering and the emphasis on correctness of predictions over coverage, **precision is the most appropriate KPI** to evaluate and optimize. It aligns with the operational goals of minimizing false positives and ensuring high-confidence, reliable predictions within a critical decision pipeline.

@@ -7,9 +7,10 @@ from sklearn.metrics import (
     f1_score,
     classification_report,
     confusion_matrix,
-    ConfusionMatrixDisplay,
+    ConfusionMatrixDisplay, # Keep this for CM plot
 )
-from sklearn.calibration import calibration_curve, CalibrationDisplay
+# Import calibration_curve directly
+from sklearn.calibration import calibration_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
@@ -35,6 +36,7 @@ def evaluate_classification_model_multi(
     """
     Performs comprehensive performance testing for a trained text classification model
     on multiple datasets and allows specified comparisons.
+    Uses matplotlib directly for calibration plots for compatibility with older sklearn.
 
     Args:
         model: The trained classification model (e.g., a scikit-learn Pipeline).
@@ -104,7 +106,7 @@ def evaluate_classification_model_multi(
             'by_metadata': {},
             'by_confidence': pd.DataFrame(), # Initialize as empty DataFrame
             'class_names': None,
-            'y_true': None, # Optionally store arrays if needed later
+            'y_true': None,
             'y_pred': None,
             'y_confidence': None
         }
@@ -119,17 +121,15 @@ def evaluate_classification_model_multi(
             X = df_eval[text_col]
             y_pred = model.predict(X)
             y_proba = model.predict_proba(X)
-            y_confidence = np.max(y_proba, axis=1) # Confidence = max probability
+            y_confidence = np.max(y_proba, axis=1)
 
             df_eval[f'{target_col}_pred'] = y_pred
             df_eval['confidence_score'] = y_confidence
 
-            # Store arrays if needed
             results[df_name]['y_true'] = y_true
             results[df_name]['y_pred'] = y_pred
             results[df_name]['y_confidence'] = y_confidence
 
-            # Determine and store class names, check for consistency
             current_class_names = getattr(model, 'classes_', sorted(y_true.unique()))
             results[df_name]['class_names'] = current_class_names
             if all_class_names is None:
@@ -157,6 +157,7 @@ def evaluate_classification_model_multi(
             print(f"     Macro F1:         {metrics['macro_f1']:.4f}")
 
             # --- 1c. Performance by Metadata Columns ---
+            # (This section remains unchanged)
             if metadata_cols:
                 print("   Calculating Performance by Metadata Columns...")
                 results[df_name]['by_metadata'] = {}
@@ -174,14 +175,12 @@ def evaluate_classification_model_multi(
                     else: # Try binning continuous variables
                          try:
                              binned_col_name = f'{col}_binned'
-                             # Use pd.cut for date/time, pd.qcut might be better for numeric but needs numeric type
                              if pd.api.types.is_datetime64_any_dtype(df_eval[col]):
                                  df_eval[binned_col_name] = pd.cut(df_eval[col], bins=5) # Adjust bins as needed
                              else:
-                                 # Attempt qcut for numeric, fall back to cut if needed
                                  try:
-                                      df_eval[binned_col_name] = pd.qcut(df_eval[col], q=5, duplicates='drop')
-                                 except (ValueError, TypeError): # Handle non-numeric or issues with quantiles
+                                      df_eval[binned_col_name] = pd.qcut(df_eval[col].astype(float), q=5, duplicates='drop')
+                                 except (ValueError, TypeError):
                                       df_eval[binned_col_name] = pd.cut(df_eval[col].astype(float), bins=5) # Force float for cut
 
                              grouped = df_eval.groupby(binned_col_name)
@@ -191,9 +190,8 @@ def evaluate_classification_model_multi(
                              continue
 
                     for grp_name, group in grouped:
-                        grp_name_str = str(grp_name) # Ensure group name is string for dict key
+                        grp_name_str = str(grp_name)
                         if len(group) < 2 or group[target_col].nunique() < 2 :
-                            # print(f"       Skipping group '{grp_name_str}' (size={len(group)}, unique_classes={group[target_col].nunique()}) due to insufficient data for macro metrics.")
                             results[df_name]['by_metadata'][col][grp_name_str] = {
                                 'num_samples': len(group),
                                 'accuracy': accuracy_score(group[target_col], group[f'{target_col}_pred']) if len(group)>0 else 0,
@@ -210,6 +208,7 @@ def evaluate_classification_model_multi(
                         results[df_name]['by_metadata'][col][grp_name_str] = group_metrics
 
             # --- 1d. Performance by Confidence Threshold ---
+            # (This section remains unchanged)
             print("   Calculating Performance by Confidence Threshold...")
             confidence_results_list = []
             total_samples = len(y_true)
@@ -229,38 +228,39 @@ def evaluate_classification_model_multi(
                     y_true_thresh = y_true[mask]
                     y_pred_thresh = y_pred[mask]
 
-                    if y_true_thresh.nunique() > 1: # Need >1 class for macro metrics
+                    if y_true_thresh.nunique() > 1:
                         thresh_metrics['accuracy'] = accuracy_score(y_true_thresh, y_pred_thresh)
                         thresh_metrics['macro_precision'] = precision_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0)
                         thresh_metrics['macro_recall'] = recall_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0)
                         thresh_metrics['macro_f1'] = f1_score(y_true_thresh, y_pred_thresh, average='macro', zero_division=0)
-                    else: # Handle case with only one class after filtering
+                    else:
                         thresh_metrics['accuracy'] = accuracy_score(y_true_thresh, y_pred_thresh)
                         thresh_metrics['macro_precision'] = np.nan
                         thresh_metrics['macro_recall'] = np.nan
                         thresh_metrics['macro_f1'] = np.nan
-                else: # No samples meet threshold
+                else:
                     thresh_metrics['accuracy'] = np.nan
                     thresh_metrics['macro_precision'] = np.nan
                     thresh_metrics['macro_recall'] = np.nan
                     thresh_metrics['macro_f1'] = np.nan
 
                 confidence_results_list.append(thresh_metrics)
-            # Store as DataFrame
             results[df_name]['by_confidence'] = pd.DataFrame(confidence_results_list)
             print(f"     Analyzed {len(confidence_thresholds)} confidence thresholds.")
 
+
             # --- 1e. Detailed Classification Report ---
+            # (This section remains unchanged)
             print("   Generating Classification Report...")
             report = classification_report(y_true, y_pred, target_names=[str(tn) for tn in current_class_names], zero_division=0)
             print(report)
-            results[df_name]['overall']['classification_report'] = report # Store the report string
+            results[df_name]['overall']['classification_report'] = report
+
 
             # --- 1f. Plotting (optional, per dataset) ---
             if plot_charts:
                  print(f"   Plotting Confusion Matrix for '{df_name}'...")
                  try:
-                    # Increase figure size for many classes
                     num_classes = len(current_class_names)
                     cm_size = min(max(6, num_classes * cm_figsize_scale), max_cm_size)
                     fig, ax = plt.subplots(figsize=(cm_size, cm_size))
@@ -273,45 +273,58 @@ def evaluate_classification_model_multi(
                  except Exception as e:
                     print(f"     Error plotting confusion matrix for {df_name}: {e}")
 
+                 # --- MODIFIED SECTION: Calibration Plot ---
                  if hasattr(model, 'predict_proba'):
                     print(f"   Plotting Calibration Curve for '{df_name}'...")
                     try:
-                        fig, ax = plt.subplots(figsize=figsize)
+                        # Calculate calibration curve data
+                        # Using y_true == y_pred checks if the prediction was correct for the given confidence
                         prob_true, prob_pred = calibration_curve(y_true == y_pred, y_confidence, n_bins=10, strategy='uniform')
-                        disp = CalibrationDisplay(prob_true, prob_pred, y_confidence)
-                        disp.plot(ax=ax, name=f'{df_name} Confidence Calibration')
-                        ax.plot([0, 1], [0, 1], linestyle='--', label='Perfectly calibrated')
-                        plt.title(f"'{df_name}' - Confidence Calibration Curve")
-                        plt.xlabel("Mean Predicted Confidence (Max Probability)")
-                        plt.ylabel("Fraction of Positives (Accuracy within bin)")
-                        plt.legend()
-                        plt.grid(True)
+
+                        # Create plot using matplotlib directly
+                        fig, ax = plt.subplots(figsize=figsize)
+
+                        # Plot the calibration curve
+                        ax.plot(prob_pred, prob_true, marker='o', linewidth=1, linestyle='-', label=f'{df_name} Confidence Calibration')
+
+                        # Plot the perfectly calibrated line (reference)
+                        ax.plot([0, 1], [0, 1], linestyle='--', color='black', label='Perfectly calibrated')
+
+                        # Add labels, title, grid, legend
+                        ax.set_xlabel("Mean Predicted Confidence (Max Probability)")
+                        ax.set_ylabel("Fraction of Positives (Accuracy within bin)")
+                        ax.set_title(f"'{df_name}' - Confidence Calibration Curve")
+                        ax.grid(True)
+                        ax.legend(loc="lower right")
                         plt.tight_layout()
                         plt.show()
+
+                    except ValueError as ve:
+                         # Handle cases where calibration_curve might fail (e.g., only one class present after filtering)
+                         print(f"     Warning: Could not generate calibration curve for '{df_name}'. Maybe only one class predicted? Error: {ve}")
                     except Exception as e:
-                        print(f"     Error plotting calibration curve for {df_name}: {e}")
+                        print(f"     Error plotting calibration curve for '{df_name}': {e}")
+                 # --- END OF MODIFIED SECTION ---
 
             processed_datasets.add(df_name) # Mark as successfully processed
 
         except Exception as e:
             print(f"!!! An error occurred processing dataset '{df_name}': {e}")
             import traceback
-            traceback.print_exc() # Print detailed traceback
-            # Remove partial results for the failed dataset
+            traceback.print_exc()
             if df_name in results:
                 del results[df_name]
 
 
     # --- 2. Plot Combined Performance vs Confidence ---
+    # (This section remains unchanged)
     if plot_charts and processed_datasets:
         print("\n2. Plotting Combined Performance vs. Confidence Threshold...")
-
-        # Plot Macro Precision (KPI) vs Confidence
         plt.figure(figsize=figsize)
         for df_name in processed_datasets:
             if df_name in results and not results[df_name]['by_confidence'].empty:
                 conf_df = results[df_name]['by_confidence']
-                plt.plot(conf_df['threshold'], conf_df['macro_precision'], marker='o', linestyle='-', label=f'{df_name} Macro Precision') # Consider varying markers/linestyles
+                plt.plot(conf_df['threshold'], conf_df['macro_precision'], marker='o', linestyle='-', label=f'{df_name} Macro Precision')
         plt.title('Macro Precision (KPI) vs. Model Confidence Threshold')
         plt.xlabel('Confidence Threshold')
         plt.ylabel('Macro Precision')
@@ -321,7 +334,6 @@ def evaluate_classification_model_multi(
         plt.tight_layout()
         plt.show()
 
-        # Plot Accuracy vs Confidence
         plt.figure(figsize=figsize)
         for df_name in processed_datasets:
              if df_name in results and not results[df_name]['by_confidence'].empty:
@@ -336,7 +348,6 @@ def evaluate_classification_model_multi(
         plt.tight_layout()
         plt.show()
 
-        # Plot Coverage vs Confidence
         plt.figure(figsize=figsize)
         for df_name in processed_datasets:
              if df_name in results and not results[df_name]['by_confidence'].empty:
@@ -352,11 +363,12 @@ def evaluate_classification_model_multi(
         plt.show()
     elif not processed_datasets:
          print("\n2. Skipping combined confidence plots as no datasets were successfully processed.")
-    else: # Charts not requested
+    else:
         print("\n2. Skipping combined confidence plots as plot_charts=False.")
 
 
     # --- 3. Perform Specified Comparisons ---
+    # (This section remains unchanged)
     print("\n3. Performing Specified Dataset Comparisons...")
     if comparisons and isinstance(comparisons, list):
         compared_pairs = set()
@@ -366,12 +378,10 @@ def evaluate_classification_model_multi(
                 continue
 
             name1, name2 = comp_pair
-            # Avoid comparing a pair twice (e.g., ('a','b') and ('b','a'))
             sorted_pair = tuple(sorted((name1, name2)))
             if sorted_pair in compared_pairs:
                 continue
             compared_pairs.add(sorted_pair)
-
 
             if name1 not in results or name2 not in results:
                 print(f"   Cannot compare '{name1}' vs '{name2}': One or both datasets were not processed successfully.")
@@ -379,7 +389,6 @@ def evaluate_classification_model_multi(
             if not results[name1]['overall'] or not results[name2]['overall']:
                  print(f"   Cannot compare '{name1}' vs '{name2}': Missing overall results for one or both.")
                  continue
-
 
             print(f"\n   --- Comparison: '{name1}' vs '{name2}' ---")
             metrics1 = results[name1]['overall']
@@ -392,7 +401,7 @@ def evaluate_classification_model_multi(
             print(f"|-------------------|{'-'*(max_name_len+2)}|{'-'*(max_name_len+2)}|-------------------|")
 
             kpi_diff = 0.0
-            kpi_name = 'macro_precision' # Your KPI
+            kpi_name = 'macro_precision'
 
             for metric in ['accuracy', kpi_name, 'macro_recall', 'macro_f1']:
                  val1 = metrics1.get(metric, float('nan'))
@@ -404,8 +413,7 @@ def evaluate_classification_model_multi(
 
             print(f"|-------------------|{'-'*(max_name_len+2)}|{'-'*(max_name_len+2)}|-------------------|")
 
-            # Highlight significant changes based on KPI
-            if kpi_diff < -0.03: # Example threshold for significant drop
+            if kpi_diff < -0.03:
                  print(f"   WARNING: Potential performance degradation detected ({kpi_name} decreased significantly in '{name2}' compared to '{name1}').")
             elif kpi_diff > 0.03:
                  print(f"   INFO: Performance ({kpi_name}) is notably higher in '{name2}' compared to '{name1}'.")
@@ -419,22 +427,20 @@ def evaluate_classification_model_multi(
 
 
     # --- 4. Additional Tests/Suggestions ---
+    # (This section remains unchanged)
     print("\n4. Further Analysis Suggestions:")
-    print("    - Error Analysis: Manually review examples where the model was wrong, especially:")
-    print("      - High-confidence errors across different datasets.")
-    print("      - Errors concentrated in specific metadata groups (check 'by_metadata' results).")
-    print("      - Confusion pairs common across multiple datasets.")
-    print("    - Feature Importance Analysis (if possible): Investigate driving features.")
+    print("    - Error Analysis: Manually review examples where the model was wrong...")
+    print("    - Feature Importance Analysis (if possible)...")
     print("    - Latency/Throughput Testing.")
     print("    - Robustness Testing (typos, paraphrasing).")
-    print("    - Domain Shift Analysis: If datasets represent different time periods or sources, "
-          "look for performance drift in the comparisons and metadata breakdowns.")
+    print("    - Domain Shift Analysis...")
 
 
     print("\n--- Evaluation Complete ---")
     return results
 
-# --- Example Usage ---
+
+# --- Example Usage (remains the same) ---
 
 # Assume you have:
 # model: Your trained Pipeline(TfidfVectorizer(...), CalibratedClassifierCV(LinearSVC(...)))
@@ -459,49 +465,39 @@ newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quo
 data = pd.DataFrame({'text': newsgroups.data, 'RCC': newsgroups.target})
 data['file_type'] = np.random.choice(['PDF', 'DOCX', 'TXT', 'EMAIL'], size=len(data))
 data['date_added'] = pd.to_datetime(pd.Timestamp('2023-01-01') + pd.to_timedelta(np.random.randint(0, 730, size=len(data)), unit='D')) # Wider date range
-
-# Map target index to names for clarity
 target_map = {i: name for i, name in enumerate(newsgroups.target_names)}
 data['RCC_Name'] = data['RCC'].map(target_map)
 
-# Split data into multiple sets
+# Split data
 df_train, df_temp = train_test_split(data, test_size=0.5, random_state=42, stratify=data['RCC'])
 df_val, df_temp2 = train_test_split(df_temp, test_size=0.6, random_state=123, stratify=df_temp['RCC'])
 df_test, df_holdout = train_test_split(df_temp2, test_size=0.5, random_state=456, stratify=df_temp2['RCC'])
 
 print(f"Train size: {len(df_train)}, Val size: {len(df_val)}, Test size: {len(df_test)}, Holdout size: {len(df_holdout)}")
 
-# Define and Train a dummy model (replace with loading your saved model)
+# Define and Train a dummy model
 print("\nTraining a dummy model for demonstration...")
 pipeline = Pipeline([
     ('tfidf', TfidfVectorizer(stop_words='english', max_features=1000)),
-    ('clf', CalibratedClassifierCV(LinearSVC(dual="auto", random_state=42, C=0.1), cv=3)) # Use dual="auto"
+    ('clf', CalibratedClassifierCV(LinearSVC(dual="auto", random_state=42, C=0.1), cv=3))
 ])
-
 pipeline.fit(df_train['text'], df_train['RCC_Name'])
 print("Dummy model trained.")
 
 # --- Run the evaluation function ---
-
-# 1. Define the datasets dictionary
 datasets_to_evaluate = {
     'Validation': df_val,
     'Test': df_test,
     'Holdout_2024': df_holdout,
-    'Test_Only_PDF': df_test[df_test['file_type'] == 'PDF'] # Example of a sliced dataset
+    'Test_Only_PDF': df_test[df_test['file_type'] == 'PDF']
 }
-
-# 2. Define metadata columns
 metadata_cols_to_analyze = ['file_type', 'date_added']
-
-# 3. Define comparisons (optional)
 comparisons_to_make = [
-    ('Validation', 'Test'),        # Compare Val vs Test
-    ('Test', 'Holdout_2024'),    # Compare Test vs Holdout
-    ('Test', 'Test_Only_PDF')    # Compare Test vs a subset
+    ('Validation', 'Test'),
+    ('Test', 'Holdout_2024'),
+    ('Test', 'Test_Only_PDF')
 ]
 
-# 4. Call the function
 evaluation_results = evaluate_classification_model_multi(
     model=pipeline,
     datasets=datasets_to_evaluate,
@@ -512,17 +508,3 @@ evaluation_results = evaluate_classification_model_multi(
     confidence_thresholds=np.arange(0.2, 1.0, 0.1),
     plot_charts=True
 )
-
-# Access results for a specific dataset, e.g., Test set overall KPI
-# if 'Test' in evaluation_results:
-#     print("\nTest Set Overall Macro Precision:", evaluation_results['Test']['overall']['macro_precision'])
-
-# Access results for a specific comparison group within metadata
-# if 'Test' in evaluation_results and 'by_metadata' in evaluation_results['Test'] and \
-#    'file_type' in evaluation_results['Test']['by_metadata'] and \
-#    'PDF' in evaluation_results['Test']['by_metadata']['file_type']:
-#     print("\nTest Set, File Type PDF, Macro Precision:", evaluation_results['Test']['by_metadata']['file_type']['PDF']['macro_precision'])
-
-# Access confidence results for the Holdout set
-# if 'Holdout_2024' in evaluation_results:
-#     print("\nHoldout Set Confidence Analysis:\n", evaluation_results['Holdout_2024']['by_confidence'])

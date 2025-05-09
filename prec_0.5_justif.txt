@@ -85,3 +85,19 @@ Differentiates: Clearly separates aggregate performance (precision) from instanc
 Sets expectations: Explains how these two metrics work together in practice.
 
 This should provide a solid foundation for your discussions. Good luck!
+
+
+
+
+
+Compensating Controls to Mitigate Performance Degradation in Production
+
+Given the observed performance drop on production-sampled test data — likely due to distributional mismatch between training and production environments — we are introducing two compensating controls to improve model reliability and mitigate risk in deployment:
+
+1. Input Similarity Control
+To ensure that the model operates within its domain of competence, we introduce an input validation mechanism that checks whether incoming production data is sufficiently similar to the training distribution. This may include statistical distance metrics (e.g., Mahalanobis distance, KL divergence) or the use of a separate anomaly detection model to flag out-of-distribution (OOD) inputs. Inputs that fall outside of an acceptable similarity threshold can be flagged, rejected, or routed for manual review or fallback logic. This control helps prevent the model from making predictions on unfamiliar or unrepresentative data.
+
+2. Confidence Score Thresholding
+We implement a confidence-based filtering mechanism where predictions are only accepted if the model’s confidence exceeds a predefined threshold. Predictions below this threshold are either suppressed, deferred to human review, or handled by alternative business logic. This allows us to reduce the risk of acting on low-certainty outputs, particularly in edge cases or when the model encounters ambiguous or underrepresented input patterns. The threshold can be calibrated based on validation performance, balancing coverage and reliability.
+
+Together, these controls aim to increase trustworthiness in production by detecting and managing model uncertainty and distributional shifts, even in the absence of perfect training-production alignment.

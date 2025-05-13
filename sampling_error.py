@@ -13,7 +13,9 @@ def precision_recall_sampling_error_with_others(
     """
     Computes per-class precision, recall, SE, and sampling error.
     Groups low-sample classes into 'others' and optionally excludes specific classes.
-
+    
+    Additionally adds counts for each class to the final DataFrame.
+    
     Parameters:
     - df (pd.DataFrame): Input data with true and predicted labels.
     - y_true_col (str): Column name for ground truth.
@@ -21,7 +23,7 @@ def precision_recall_sampling_error_with_others(
     - confidence (float): Confidence level for z-score.
     - sample_threshold (int): Minimum number of samples to keep class separate.
     - exclude_classes (list): List of classes to exclude from results (optional).
-
+    
     Returns:
     - pd.DataFrame with per-class stats and an 'others' row (if applicable).
     """
@@ -75,11 +77,12 @@ def precision_recall_sampling_error_with_others(
     df_main = df_raw[main_mask].copy()
     df_others = df_raw[~main_mask].copy()
 
-    # Print the 'others' classes
+    # Print the 'others' classes and counts
     if not df_others.empty:
         others_classes = df_others['class'].tolist()
-        print(f"Classes grouped into 'others': {others_classes}")
-        
+        others_counts = df_others['recall_n'].sum()  # Total samples in 'others'
+        print(f"Classes grouped into 'others': {others_classes} with {others_counts} samples")
+
         others_row = {
             'class': 'others',
             'recall': df_others['recall'].mean(),
@@ -93,7 +96,12 @@ def precision_recall_sampling_error_with_others(
         }
         df_main = pd.concat([df_main, pd.DataFrame([others_row])], ignore_index=True)
 
-    return df_main.reset_index(drop=True)
+    # Adding counts for each class into the final result dataframe
+    final_df = df_main[['class', 'recall', 'recall_standard_error', 'recall_sampling_error',
+                        'recall_n', 'precision', 'precision_standard_error', 
+                        'precision_sampling_error', 'precision_n']]
+    return final_df.reset_index(drop=True)
+
 
 
 

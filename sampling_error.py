@@ -75,7 +75,11 @@ def precision_recall_sampling_error_with_others(
     df_main = df_raw[main_mask].copy()
     df_others = df_raw[~main_mask].copy()
 
+    # Print the 'others' classes
     if not df_others.empty:
+        others_classes = df_others['class'].tolist()
+        print(f"Classes grouped into 'others': {others_classes}")
+        
         others_row = {
             'class': 'others',
             'recall': df_others['recall'].mean(),
@@ -90,6 +94,7 @@ def precision_recall_sampling_error_with_others(
         df_main = pd.concat([df_main, pd.DataFrame([others_row])], ignore_index=True)
 
     return df_main.reset_index(drop=True)
+
 
 
 df_result = precision_recall_sampling_error_with_others(

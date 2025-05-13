@@ -1,6 +1,116 @@
-Here’s a professional and clear way to document the output of your AI model in a Word document. Below is the content you can copy into your Word file, including a sample table showing the output format from your `CalibratedClassifierCV`-wrapped `LinearSVC` model.
+Introduction
 
----
+This document details the output format of the deployed AI model. The model is a LinearSVC classifier, wrapped in a Calibrated Classifier, that takes TF-IDF embeddings of text documents as input and outputs predicted probabilities for each of the 37 classes, along with the single most likely class prediction.
+
+Model Description
+
+Base Model: LinearSVC (Support Vector Classifier)
+
+Calibration Method: Calibrated Classifier (likely using isotonic or sigmoid calibration)
+
+Input: TF-IDF embeddings of a text document
+
+Output:
+
+Predicted probabilities for each of the 37 classes.
+
+The class with the highest predicted probability (the top predicted class).
+
+Number of Classes: 37
+
+Output Format
+
+The model's output for a single input document will be presented as follows:
+
+Predicted Class: This indicates the class that the model predicts as the most likely for the input document. This is the class corresponding to the highest predicted probability.
+
+Class Probabilities: This provides the predicted probability for each of the 37 classes. The probabilities are presented in a tabular format for clarity. The sum of all probabilities for a given document should ideally be close to 1.0.
+
+Example Output
+
+Below is an example of how the model's output might appear for a hypothetical input document.
+
+Input Document (Hypothetical): [Insert a brief description or excerpt of the hypothetical input document here, if helpful for context]
+
+Predicted Class: Class_X (Replace 'Class_X' with the actual predicted class name)
+
+Class Probabilities:
+
+Class Name	Predicted Probability
+Class_1	0.012
+Class_2	0.005
+Class_3	0.028
+...	...
+Class_X	0.850
+...	...
+Class_35	0.003
+Class_36	0.015
+Class_37	0.010
+
+Note: The table above is illustrative. The actual class names and probabilities will vary based on the input document and the model's predictions.
+
+Interpretation of Output
+
+The "Predicted Class" is the model's single best guess for the document's category.
+
+The "Predicted Probability" for each class indicates the model's confidence that the document belongs to that specific class. A higher probability suggests greater confidence.
+
+The calibration step helps to ensure that the predicted probabilities are more reliable and better reflect the true likelihood of the document belonging to a particular class. For example, a predicted probability of 0.85 for a class suggests that in 85% of cases where the model predicts this class with a probability of 0.85, the document truly belongs to that class.
+
+Further Considerations
+
+Class Names: Ensure the "Class Name" column in the table uses the exact names or identifiers for your 37 classes.
+
+Probability Formatting: The probabilities are typically represented as decimal values between 0.0 and 1.0.
+
+Confidence Thresholds: Depending on the application, you might establish confidence thresholds for using the model's predictions. For instance, you might only accept predictions where the top probability is above a certain value.
+
+Error Handling: (Optional, but good to mention) Briefly describe any error handling mechanisms or what the output might look like if the model encounters an issue with the input (e.g., inability to process the input).
+
+Conclusion
+
+This document outlines the standard output format for the Calibrated LinearSVC model. Understanding this format is crucial for interpreting the model's predictions and utilizing them effectively.
+
+How to incorporate this into a Word Document:
+
+Create a New Word Document: Start with a blank Word document.
+
+Add Title: Type the document title at the top, e.g., "AI Model Output Documentation - Calibrated LinearSVC (TF-IDF)".
+
+Sections: Use headings (like the bolded section titles in the example) to structure the document.
+
+Text: Copy and paste the descriptive text from the example.
+
+Table:
+
+In the "Example Output" section, click where you want the table to appear.
+
+Go to the "Insert" tab in Word.
+
+Click "Table".
+
+Select "Insert Table...".
+
+Set the "Number of columns" to 2.
+
+Set the "Number of rows" to 38 (1 header row + 37 rows for classes).
+
+Click "OK".
+
+Enter the column headers: "Class Name" and "Predicted Probability".
+
+Fill in the table with hypothetical class names and probabilities, ensuring to highlight the probability for the predicted class as shown in the example.
+
+Formatting: Use bolding for section titles and table headers. Consider using a consistent font and spacing.
+
+Save: Save your Word document.
+
+This structured approach makes it easy for anyone reviewing the document to understand the model's output at a glance. Remember to replace the placeholder information (like "Class_X" and the hypothetical probabilities) with details relevant to your specific model and classes.
+
+
+
+
+************************************************************************************************
 
 # **Model Output Documentation**
 

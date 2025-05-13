@@ -302,7 +302,10 @@ You can also compute **macro**, **micro**, and **weighted** averages of these me
 * **Weighted Average:** Average weighted by the number of instances (support) per class.
 * **Micro Average:** Aggregates contributions of all classes to compute a global average.
 
----
 
-Let me know if you want a sample table template or want this converted back to a Word document!
+
+The output probability array from the model corresponds to the order of classes as returned by the model object's .classes_ attribute. Each index in the probability vector aligns with the class label at the same position in model.classes_.
+
+
+
 

@@ -13,8 +13,7 @@ def precision_recall_sampling_error_with_others(
     """
     Computes per-class precision, recall, SE, and sampling error.
     Groups low-sample classes into 'others' and optionally excludes specific classes.
-    
-    Additionally adds counts for each class to the final DataFrame.
+    Adds precision confidence intervals (lower and upper limits) to the final DataFrame.
     
     Parameters:
     - df (pd.DataFrame): Input data with true and predicted labels.
@@ -25,7 +24,7 @@ def precision_recall_sampling_error_with_others(
     - exclude_classes (list): List of classes to exclude from results (optional).
     
     Returns:
-    - pd.DataFrame with per-class stats and an 'others' row (if applicable).
+    - pd.DataFrame with per-class stats, 'others' row (if applicable), and precision confidence intervals.
     """
     if exclude_classes is None:
         exclude_classes = []
@@ -67,7 +66,9 @@ def precision_recall_sampling_error_with_others(
             'precision': precision,
             'precision_standard_error': precision_se,
             'precision_sampling_error': precision_sampling_error,
-            'precision_n': predicted_n
+            'precision_n': predicted_n,
+            'precision_lower_limit': precision - precision_sampling_error if not np.isnan(precision_sampling_error) else np.nan,
+            'precision_upper_limit': precision + precision_sampling_error if not np.isnan(precision_sampling_error) else np.nan
         })
 
     df_raw = pd.DataFrame(raw_results)
@@ -92,7 +93,9 @@ def precision_recall_sampling_error_with_others(
             'precision': df_others['precision'].mean(),
             'precision_standard_error': df_others['precision_standard_error'].mean(),
             'precision_sampling_error': z * df_others['precision_standard_error'].mean(),
-            'precision_n': df_others['precision_n'].sum()
+            'precision_n': df_others['precision_n'].sum(),
+            'precision_lower_limit': df_others['precision'].mean() - z * df_others['precision_standard_error'].mean(),
+            'precision_upper_limit': df_others['precision'].mean() + z * df_others['precision_standard_error'].mean()
         }
         df_main = pd.concat([df_main, pd.DataFrame([others_row])], ignore_index=True)
 
@@ -100,9 +103,11 @@ def precision_recall_sampling_error_with_others(
     df_main['count'] = df_main['recall_n']  # count column showing the sample count for each class
     final_df = df_main[['class', 'recall', 'recall_standard_error', 'recall_sampling_error',
                         'recall_n', 'precision', 'precision_standard_error', 
-                        'precision_sampling_error', 'precision_n', 'count']]
+                        'precision_sampling_error', 'precision_n', 'precision_lower_limit',
+                        'precision_upper_limit', 'count']]
     
     return final_df.reset_index(drop=True)
+
 
 
 

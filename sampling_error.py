@@ -96,11 +96,14 @@ def precision_recall_sampling_error_with_others(
         }
         df_main = pd.concat([df_main, pd.DataFrame([others_row])], ignore_index=True)
 
-    # Adding counts for each class into the final result dataframe
+    # Adding the count of samples for each class in the final DataFrame
+    df_main['count'] = df_main['recall_n']  # count column showing the sample count for each class
     final_df = df_main[['class', 'recall', 'recall_standard_error', 'recall_sampling_error',
                         'recall_n', 'precision', 'precision_standard_error', 
-                        'precision_sampling_error', 'precision_n']]
+                        'precision_sampling_error', 'precision_n', 'count']]
+    
     return final_df.reset_index(drop=True)
+
 
 
 

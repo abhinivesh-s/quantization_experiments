@@ -1,0 +1,132 @@
+Here’s a professional and clear way to document the output of your AI model in a Word document. Below is the content you can copy into your Word file, including a sample table showing the output format from your `CalibratedClassifierCV`-wrapped `LinearSVC` model.
+
+---
+
+# **Model Output Documentation**
+
+## **Model Description**
+
+This model is a **Linear Support Vector Classifier (LinearSVC)** wrapped in **CalibratedClassifierCV** to enable probability estimates. It is trained on **TF-IDF embeddings** of documents for multiclass classification.
+
+* **Input:** TF-IDF vectorized representation of a document.
+* **Output:**
+
+  * Predicted class label (the one with the highest probability)
+  * Class-wise probability distribution over 37 possible classes
+
+## **Classes**
+
+The model predicts one of **37 predefined classes**, each representing a specific category relevant to the business problem. The classes are indexed or named (e.g., `class_0`, `class_1`, ..., `class_36`) depending on the training label format.
+
+---
+
+## **Sample Output**
+
+| Document ID | Predicted Class | Top 5 Classes with Probabilities                                                      |
+| ----------- | --------------- | ------------------------------------------------------------------------------------- |
+| doc\_001    | class\_12       | class\_12 (0.41), class\_5 (0.22), class\_9 (0.13), class\_3 (0.10), class\_17 (0.05) |
+| doc\_002    | class\_3        | class\_3 (0.62), class\_1 (0.15), class\_7 (0.08), class\_8 (0.06), class\_22 (0.03)  |
+| doc\_003    | class\_7        | class\_7 (0.35), class\_12 (0.30), class\_0 (0.11), class\_4 (0.10), class\_18 (0.07) |
+
+> **Note:** The predicted class is the one with the **highest probability**.
+
+---
+
+## **Technical Notes**
+
+* **Probability Calibration:** Since `LinearSVC` does not natively support probabilities, `CalibratedClassifierCV` is used to provide reliable probability estimates.
+* **Top-K Interpretation:** Often, it’s useful to consider the top-N predicted classes for downstream tasks or human review. The above table shows Top-5 probabilities for illustration.
+
+## **Output Format (as Python dict or JSON)**
+
+If exporting output programmatically, the result per document may look like:
+
+```json
+{
+  "document_id": "doc_001",
+  "predicted_class": "class_12",
+  "probabilities": {
+    "class_0": 0.01,
+    "class_1": 0.00,
+    ...
+    "class_12": 0.41,
+    ...
+    "class_36": 0.00
+  }
+}
+```
+
+---
+
+Would you like me to create a downloadable Word (.docx) version of this document?
+
+
+
+
+### **Model Evaluation Reports**
+
+After generating predictions, the model is evaluated using several standard classification metrics **calculated per class**. These metrics provide insight into the performance of the classifier across the 37 classes.
+
+#### **1. Precision**
+
+* **Definition:** Precision measures the proportion of predicted positive instances that are actually correct.
+* **Formula:**
+
+  $$
+  \text{Precision} = \frac{\text{True Positives (TP)}}{\text{True Positives (TP)} + \text{False Positives (FP)}}
+  $$
+* **Interpretation:** High precision means fewer false positives.
+
+#### **2. Recall (Sensitivity)**
+
+* **Definition:** Recall measures the proportion of actual positives that are correctly identified.
+* **Formula:**
+
+  $$
+  \text{Recall} = \frac{\text{True Positives (TP)}}{\text{True Positives (TP)} + \text{False Negatives (FN)}}
+  $$
+* **Interpretation:** High recall means fewer false negatives.
+
+#### **3. F1 Score**
+
+* **Definition:** The F1 Score is the harmonic mean of precision and recall.
+* **Formula:**
+
+  $$
+  F1 = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
+  $$
+* **Interpretation:** F1 balances precision and recall, especially useful when classes are imbalanced.
+
+#### **4. Accuracy**
+
+* **Definition:** Accuracy is the proportion of total predictions that were correct.
+* **Formula (per class):**
+
+  $$
+  \text{Accuracy}_{\text{class}} = \frac{\text{TP + TN}}{\text{TP + FP + FN + TN}}
+  $$
+* **Interpretation:** Overall correctness. Less informative for imbalanced data unless reported per class.
+
+#### **5. Support**
+
+* **Definition:** Support is the number of true instances for each class in the reference (true) labels.
+* **Interpretation:** Indicates how many examples were available to evaluate a class, which helps understand reliability.
+
+---
+
+You would typically display these metrics in a table like the one below:
+
+| Class     | Precision | Recall | F1 Score | Accuracy | Support |
+| --------- | --------- | ------ | -------- | -------- | ------- |
+| class\_0  | 0.85      | 0.78   | 0.81     | 0.97     | 120     |
+| class\_1  | 0.65      | 0.72   | 0.68     | 0.94     | 95      |
+| ...       | ...       | ...    | ...      | ...      | ...     |
+| class\_36 | 0.90      | 0.87   | 0.88     | 0.99     | 108     |
+
+You can also calculate:
+
+* **Macro average:** Unweighted average over classes.
+* **Weighted average:** Average weighted by support (more useful with class imbalance).
+* **Micro average:** Global metrics by aggregating TP, FP, FN across all classes.
+
+Would you like help generating this table programmatically from your model predictions?

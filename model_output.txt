@@ -240,3 +240,69 @@ You can also calculate:
 * **Micro average:** Global metrics by aggregating TP, FP, FN across all classes.
 
 Would you like help generating this table programmatically from your model predictions?
+
+
+
+Certainly! Here’s a Word-friendly version of the model evaluation metric definitions. You can copy-paste this directly into your document with clean formatting:
+
+---
+
+### **Model Evaluation Reports**
+
+After generating predictions, the model is evaluated using standard classification metrics for each of the 37 classes. These include:
+
+---
+
+**1. Precision**
+
+* **Definition:** Precision measures the proportion of predicted positive instances that are actually correct.
+* **Formula:**
+  `Precision = True Positives / (True Positives + False Positives)`
+* **Interpretation:** High precision means that when the model predicts a class, it's usually correct.
+
+---
+
+**2. Recall (Sensitivity)**
+
+* **Definition:** Recall measures the proportion of actual positive instances that the model correctly identified.
+* **Formula:**
+  `Recall = True Positives / (True Positives + False Negatives)`
+* **Interpretation:** High recall means the model captures most of the actual instances of a class.
+
+---
+
+**3. F1 Score**
+
+* **Definition:** The F1 Score is the harmonic mean of precision and recall, balancing both metrics.
+* **Formula:**
+  `F1 Score = 2 * (Precision * Recall) / (Precision + Recall)`
+* **Interpretation:** Useful when you need a balance between precision and recall, especially with imbalanced classes.
+
+---
+
+**4. Accuracy (Per Class)**
+
+* **Definition:** Accuracy measures the proportion of all predictions that were correct, per class.
+* **Formula:**
+  `Accuracy = (True Positives + True Negatives) / (Total Predictions)`
+* **Interpretation:** Represents overall correctness but may be misleading in the case of class imbalance.
+
+---
+
+**5. Support**
+
+* **Definition:** Support is the number of actual instances of each class in the dataset.
+* **Interpretation:** Indicates how many examples of a class were available to evaluate the model's performance. Higher support generally means more reliable metrics.
+
+---
+
+You can also compute **macro**, **micro**, and **weighted** averages of these metrics:
+
+* **Macro Average:** Unweighted mean of the metric across all classes.
+* **Weighted Average:** Average weighted by the number of instances (support) per class.
+* **Micro Average:** Aggregates contributions of all classes to compute a global average.
+
+---
+
+Let me know if you want a sample table template or want this converted back to a Word document!
+

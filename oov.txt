@@ -3,3 +3,24 @@ Token-based OOV %: This metric measures the proportion of individual word tokens
 Unique Word-based OOV %: This metric measures the proportion of the target dataset's distinct vocabulary that consists of words not seen in the Reference Vocabulary. It highlights the extent of vocabulary expansion or shift in the target dataset. A higher percentage indicates that the target data introduces a larger proportion of genuinely new terms (e.g., new concepts, jargon, entities, product names), regardless of how frequently each new term is used.
 
 Both metrics provide complementary insights. The Token-Based OOV focuses on the frequency of unknown word encounters during processing, while the Unique Word-Based OOV focuses on the breadth of new vocabulary introduced in a dataset compared to the reference. All comparisons are performed case-insensitively by converting text to lowercase.
+
+
+Implementing input controls based on similarity to training data is essential for maintaining the reliability and accuracy of multiclass text classification models in production. This approach helps ensure that incoming data aligns with the model’s learned patterns, thereby reducing the risk of misclassifications and performance degradation.
+
+Key Literature and Techniques
+	1.	Similarity-Based Classification and Zero-Shot Learning
+Schopf et al. (2022) conducted a systematic evaluation of similarity-based and zero-shot approaches for unsupervised text classification. They found that similarity-based methods, particularly those utilizing advanced embeddings like SimCSE and SBERT, significantly outperform zero-shot techniques in most cases. This underscores the effectiveness of leveraging similarity measures to assess and control input data in production environments.
+	2.	Fuzzy Similarity-Based Concept Mining
+Puri (2012) introduced a Fuzzy Similarity-Based Concept Mining Model (FSCMM) for text classification. This model employs a Fuzzy Feature Category Similarity Analyzer (FFCSA) to analyze extracted features against corresponding categories, enabling more nuanced classification decisions. Such fuzzy similarity measures can be instrumental in determining the acceptability of new inputs based on their resemblance to training data.
+	3.	Data Validation in Industrial Machine Learning
+Lwakatare et al. (2021) explored the adoption of automated data validation processes in industrial ML projects. They emphasized the importance of systematic data validation frameworks to detect and handle erroneous or out-of-distribution data before it impacts model performance. Implementing such frameworks can help in enforcing input controls based on data similarity and quality.
+	4.	Deduplication of Training Data
+Lee et al. (2021) highlighted the prevalence of near-duplicate examples in language modeling datasets and demonstrated that deduplicating training data leads to better model performance and reduced memorization. This finding suggests that maintaining a diverse and representative training set is crucial, and that input controls should also account for redundancy and duplication in incoming data.
+
+Practical Strategies for Input Control
+	•	Embedding-Based Similarity Checks: Utilize embeddings (e.g., SBERT, SimCSE) to compute similarity scores between incoming data and training samples. Set thresholds to filter out inputs that fall below a certain similarity level, ensuring that the model only processes data it is likely to handle accurately. ￼
+	•	Fuzzy Matching Techniques: Implement fuzzy logic-based methods to assess the degree of similarity between new inputs and existing categories, allowing for more flexible and context-aware input validation.
+	•	Automated Data Validation Frameworks: Develop and integrate automated data validation tools that can perform checks for data consistency, completeness, and conformity to expected patterns, thereby preventing anomalous data from affecting model predictions.
+	•	Training Data Deduplication: Regularly audit and clean the training dataset to remove duplicates and near-duplicates, enhancing the model’s ability to generalize and reducing the risk of overfitting to redundant patterns.
+
+By incorporating these strategies, organizations can establish robust input controls that maintain the integrity and performance of multiclass text classification models in production settings.

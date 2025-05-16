@@ -1,0 +1,20 @@
+```mermaid
+graph TD
+
+A[load_data.ipynb<br/><b>uses: raw_data.csv</b>]
+B[clean_data.ipynb<br/><b>uses: raw_data.csv</b><br/><b>produces: clean_data.csv</b>]
+C[train_model.ipynb<br/><b>uses: clean_data.csv</b><br/><b>produces: model.pkl</b>]
+
+unlabeled_data[all unlabeled data parquet files]
+raw_train_data[raw_train_data]
+raw_test_data[raw_test_data]
+clean_data[preprocessed_data]
+final_model[final_model.pkl]
+
+unlabeled_data --> A
+raw_train_data --> B
+raw_test_data --> B
+B --> final_model
+clean_data --> C
+C --> final_model
+

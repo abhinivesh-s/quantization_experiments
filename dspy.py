@@ -1,5 +1,5 @@
 import dspy
-from dspy.teleprompt import BootstrapFewShot # Correctly using BootstrapFewShot
+from dspy.teleprompt import BootstrapFewShot
 from dspy.evaluate import Evaluate
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -7,43 +7,25 @@ import pandas as pd
 import random
 import os
 
-# --- 1. Configuration ---
-# Set your API key for the LLM.
-# Make sure to set this environment variable or replace "sk-YOUR_OPENAI_API_KEY"
-# For OpenAI (recommended for this example due to direct integration)
-# os.environ["OPENAI_API_KEY"] = "sk-YOUR_OPENAI_KEY" # Uncomment and set your actual key
-# dspy.configure(lm=dspy.OpenAI(model="gpt-4o"))
+# --- 1. Configuration for Gemini 1.5 Pro via GCP Vertex AI ---
+# IMPORTANT: Replace these with your actual GCP project ID and region.
+# Ensure your environment is authenticated to GCP (e.g., via `gcloud auth application-default login`)
 
-# For Google (Gemini) - requires a custom wrapper if not directly supported by Dspy's core
-# If you have a custom dspy.LM for Gemini, configure it here.
-# Example custom GeminiLM (conceptual, requires actual API calls and error handling):
-# class GeminiLM(dspy.LM):
-#     def __init__(self, model_name="gemini-pro"):
-#         super().__init__()
-#         import google.generativeai as genai
-#         # Ensure your Google API key is configured
-#         genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Or replace with your key
-#         self.model = genai.GenerativeModel(model_name)
-#         self.history = []
+GCP_PROJECT_ID = "your-gcp-project-id"  # e.g., "my-awesome-project-12345"
+VERTEX_LOCATION = "us-central1"       # e.g., "us-central1", "europe-west1"
+GEMINI_MODEL_NAME = "gemini-1.5-pro-preview-0514" # Check Google's docs for the latest stable model name
 
-#     def _create_completion(self, prompt, **kwargs):
-#         try:
-#             response = self.model.generate_content(prompt)
-#             # Gemini's response object structure might need careful extraction.
-#             # This assumes a simple text response.
-#             return response.text
-#         except Exception as e:
-#             print(f"Gemini API Error: {e}")
-#             raise
-
-#     def __call__(self, prompt, **kwargs):
-#         return self._create_completion(prompt, **kwargs)
-
-# dspy.configure(lm=GeminiLM(model_name="gemini-pro")) # Uncomment if using custom GeminiLM
-
-# FOR DEMONSTRATION PURPOSES, I'll use OpenAI as it's directly integrated.
-# PLEASE REPLACE WITH YOUR ACTUAL API KEY AND MODEL.
-dspy.configure(lm=dspy.OpenAI(model="gpt-4o", api_key="sk-YOUR_OPENAI_API_KEY"))
+# Configure Dspy to use Google Vertex AI
+# dspy.configure sets the default language model for all dspy.Predict calls
+print(f"Configuring Dspy with Gemini 1.5 Pro ({GEMINI_MODEL_NAME}) on Vertex AI in {VERTEX_LOCATION} for project {GCP_PROJECT_ID}...")
+dspy.configure(
+    lm=dspy.Google(
+        model=GEMINI_MODEL_NAME,
+        project_id=GCP_PROJECT_ID,
+        location=VERTEX_LOCATION
+    )
+)
+print("Dspy configuration complete.")
 
 
 # --- 2. Data Preparation ---
@@ -54,7 +36,7 @@ def generate_dummy_data(num_classes=40, docs_per_class=750): # 40 * 750 = 30,000
     
     for i in range(num_classes):
         class_name = f"Category_{chr(65+i) if i < 26 else chr(65+i-26)}{i}" # A, B, ..., Z, AA, BB...
-        definition = f"This class '{class_name}' pertains to the domain of {random.choice(['science', 'history', 'technology', 'art', 'finance', 'nature', 'health', 'sports', 'politics', 'education'])} focusing on specific aspects related to item {i*100}, concept '{class_name.lower()}_theory', and applications in {random.choice(['industry', 'academia', 'daily life'])}. It also includes topics suchs as {random.choice(['research', 'development', 'analysis', 'synthesis'])} of {class_name.lower()} materials."
+        definition = f"This class '{class_name}' pertains to the domain of {random.choice(['science', 'history', 'technology', 'art', 'finance', 'nature', 'health', 'sports', 'politics', 'education'])} focusing on specific aspects related to item {i*100}, concept '{class_name.lower()}_theory', and applications in {random.choice(['industry', 'academia', 'daily life'])}. It also includes topics such as {random.choice(['research', 'development', 'analysis', 'synthesis'])} of {class_name.lower()} materials."
         class_definitions_map[class_name] = definition
         
         for j in range(docs_per_class):
@@ -263,10 +245,6 @@ for i, example in enumerate(test_examples):
 
 # Ensure y_pred contains only valid labels for scikit-learn's classification_report
 # Or, if you want to see how often it predicts invalid labels, make them part of your 'labels'
-# For the classification report, it's best if y_pred only contains labels present in all_class_names.
-# We'll map any invalid predictions to a placeholder, or filter them out if they are truly not relevant.
-# Here, we'll replace invalid predictions with a placeholder 'INVALID_PREDICTION'
-# so they are still part of the report, but clearly show up as wrong.
 y_pred_for_report = [p if p in all_class_names else 'INVALID_PREDICTION' for p in y_pred]
 
 # Dynamically add 'INVALID_PREDICTION' to labels if it appeared

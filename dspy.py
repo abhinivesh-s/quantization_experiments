@@ -1,5 +1,5 @@
 import dspy
-from dspy.teleprompt import BootstrapFewShot, SignatureOptimizer
+from dspy.teleprompt import BootstrapFewShot # Correctly using BootstrapFewShot
 from dspy.evaluate import Evaluate
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -10,30 +10,36 @@ import os
 # --- 1. Configuration ---
 # Set your API key for the LLM.
 # Make sure to set this environment variable or replace "sk-YOUR_OPENAI_API_KEY"
-# For OpenAI
-# os.environ["OPENAI_API_KEY"] = "sk-YOUR_OPENAI_KEY"
+# For OpenAI (recommended for this example due to direct integration)
+# os.environ["OPENAI_API_KEY"] = "sk-YOUR_OPENAI_KEY" # Uncomment and set your actual key
 # dspy.configure(lm=dspy.OpenAI(model="gpt-4o"))
 
 # For Google (Gemini) - requires a custom wrapper if not directly supported by Dspy's core
-# As of my last update, Dspy's direct Gemini integration might require a custom wrapper.
-# If you have a custom dspy.LM for Gemini, you'd configure it here.
-# For example:
+# If you have a custom dspy.LM for Gemini, configure it here.
+# Example custom GeminiLM (conceptual, requires actual API calls and error handling):
 # class GeminiLM(dspy.LM):
 #     def __init__(self, model_name="gemini-pro"):
 #         super().__init__()
 #         import google.generativeai as genai
-#         genai.configure(api_key="YOUR_GEMINI_API_KEY") # Ensure this is your actual API key
+#         # Ensure your Google API key is configured
+#         genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Or replace with your key
 #         self.model = genai.GenerativeModel(model_name)
 #         self.history = []
 
 #     def _create_completion(self, prompt, **kwargs):
-#         response = self.model.generate_content(prompt)
-#         return response.text
+#         try:
+#             response = self.model.generate_content(prompt)
+#             # Gemini's response object structure might need careful extraction.
+#             # This assumes a simple text response.
+#             return response.text
+#         except Exception as e:
+#             print(f"Gemini API Error: {e}")
+#             raise
 
 #     def __call__(self, prompt, **kwargs):
 #         return self._create_completion(prompt, **kwargs)
 
-# dspy.configure(lm=GeminiLM(model_name="gemini-pro"))
+# dspy.configure(lm=GeminiLM(model_name="gemini-pro")) # Uncomment if using custom GeminiLM
 
 # FOR DEMONSTRATION PURPOSES, I'll use OpenAI as it's directly integrated.
 # PLEASE REPLACE WITH YOUR ACTUAL API KEY AND MODEL.
@@ -48,7 +54,7 @@ def generate_dummy_data(num_classes=40, docs_per_class=750): # 40 * 750 = 30,000
     
     for i in range(num_classes):
         class_name = f"Category_{chr(65+i) if i < 26 else chr(65+i-26)}{i}" # A, B, ..., Z, AA, BB...
-        definition = f"This class '{class_name}' pertains to the domain of {random.choice(['science', 'history', 'technology', 'art', 'finance', 'nature', 'health', 'sports', 'politics', 'education'])} focusing on specific aspects related to item {i*100}, concept '{class_name.lower()}_theory', and applications in {random.choice(['industry', 'academia', 'daily life'])}. It also includes topics such as {random.choice(['research', 'development', 'analysis', 'synthesis'])} of {class_name.lower()} materials."
+        definition = f"This class '{class_name}' pertains to the domain of {random.choice(['science', 'history', 'technology', 'art', 'finance', 'nature', 'health', 'sports', 'politics', 'education'])} focusing on specific aspects related to item {i*100}, concept '{class_name.lower()}_theory', and applications in {random.choice(['industry', 'academia', 'daily life'])}. It also includes topics suchs as {random.choice(['research', 'development', 'analysis', 'synthesis'])} of {class_name.lower()} materials."
         class_definitions_map[class_name] = definition
         
         for j in range(docs_per_class):
@@ -69,7 +75,8 @@ all_class_names = list(all_class_definitions.keys())
 # Using a smaller dev set for Dspy optimization to save time/cost.
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df['ground_truth_label'])
 # Use a smaller subset of training data for Dspy's internal optimization process
-dev_df_for_optimizer = train_df.sample(n=min(1000, len(train_df)), random_state=42) # Max 1000 examples for optimization
+# A sample of 500-1000 is often sufficient for BootstrapFewShot.
+dev_df_for_optimizer = train_df.sample(n=min(1000, len(train_df)), random_state=42)
 
 # Convert dataframes to Dspy Example objects
 train_examples = [
@@ -119,9 +126,10 @@ class MulticlassDocumentClassifier(dspy.Module):
 
     def forward(self, document_text):
         # The class_definitions_str is already pre-formatted and big, passed directly.
-        # The valid_labels string is also built dynamically for clarity.
+        # The valid_labels string is also built dynamically for clarity and strictness.
         valid_labels_prompt = f"Choose ONLY ONE of the following valid categories: {', '.join(self.all_class_names)}." \
-                              f"Do NOT include any other text or explanations in your final answer."
+                              f"Your final answer MUST be one of these exact category names, with no extra text or explanations." \
+                              f"If the document does not clearly fit any category, select the MOST RELEVANT one. Do NOT output a new category."
 
         prediction = self.classify(
             document_text=document_text,
@@ -134,30 +142,39 @@ class MulticlassDocumentClassifier(dspy.Module):
         raw_prediction = prediction.ground_truth_label
         cleaned_prediction = raw_prediction.strip()
         
-        # Remove common prefixes/suffixes
-        prefixes_to_remove = ["label:", "category:", "predicted label:", "classification:"]
+        # Remove common prefixes/suffixes, case-insensitively
+        prefixes_to_remove = ["label:", "category:", "predicted label:", "classification:", "the category is", "the correct category is", "i classify this as"]
         for prefix in prefixes_to_remove:
-            if cleaned_prediction.lower().startswith(prefix):
+            if cleaned_prediction.lower().startswith(prefix.lower()):
                 cleaned_prediction = cleaned_prediction[len(prefix):].strip()
                 break # Remove only one prefix
         
         # Remove trailing punctuation and quotes
         cleaned_prediction = cleaned_prediction.rstrip('.,;"\'').strip()
 
-        # If the LLM returns something like "The category is Class_X", extract "Class_X"
-        for class_name in self.all_class_names:
-            if class_name.lower() in cleaned_prediction.lower() and len(cleaned_prediction.lower()) < len(class_name.lower()) + 20: # prevent matching within longer strings
-                # This is a heuristic. More complex regex might be needed for very messy outputs.
-                return class_name # Return the exact class name
-                
-        # As a last resort, check if the raw cleaned prediction is an exact match
+        # Attempt to find an exact match in the valid class names (case-sensitive first, then case-insensitive)
         if cleaned_prediction in self.all_class_names:
             return cleaned_prediction
-
-        # If after all cleaning, it's still not a valid class name, try to find the closest match (optional)
-        # Or, just return it as is, and the metric will mark it as incorrect.
-        # For simplicity and strictness, we'll return it as is, letting the metric fail.
-        # A more advanced approach might map to 'UNCATEGORIZED' or 'INVALID_PREDICTION'
+        
+        for class_name in self.all_class_names:
+            if cleaned_prediction.lower() == class_name.lower():
+                return class_name # Return the exact case-sensitive class name
+        
+        # More flexible matching for partial or slightly off predictions
+        # This is a heuristic and can sometimes lead to incorrect assignments.
+        # Only use if you're willing to trade strictness for finding a match.
+        for class_name in self.all_class_names:
+            if class_name.lower() in cleaned_prediction.lower():
+                # If the predicted string contains a valid class name, and isn't too long after it
+                # Example: "This is Category_A" -> "Category_A"
+                # You might need to adjust the length threshold (e.g., +20 chars)
+                if len(cleaned_prediction) - len(class_name) < 20: # Heuristic for brevity
+                    return class_name
+        
+        # If after all cleaning, it's still not a valid class name, return it as is.
+        # The metric will then mark it as incorrect.
+        # You could also map it to a specific "INVALID_PREDICTION" placeholder here.
+        # For strictness, let's return it as is.
         return cleaned_prediction
 
 
@@ -170,8 +187,8 @@ def dspy_metric(example, prediction, trace=None):
     gold_label = example.ground_truth_label
     predicted_label = prediction # The forward method already returns the cleaned label string
     
-    # Check if the predicted_label is one of the valid class names.
-    # This ensures that hallucinated labels are counted as incorrect.
+    # Crucially, check if the predicted_label is one of the valid class names.
+    # This ensures that hallucinated or improperly formatted labels are counted as incorrect.
     if predicted_label not in all_class_names:
         # print(f"Warning: Predicted label '{predicted_label}' is not a valid class name for document: '{example.document_text[:50]}...' (Gold: {gold_label})")
         return False # Penalize predictions that are not in the valid set
@@ -186,6 +203,7 @@ def dspy_metric(example, prediction, trace=None):
 print("\nStarting prompt optimization (BootstrapFewShot)...")
 # Note: For 40 classes, few-shot examples can quickly consume context.
 # max_bootstrapped_demos=1 means it will try to find one good example to prepend to the prompt.
+# If your context window is very large, you could try 2 or 3.
 # max_labeled_demos: The maximum number of labeled examples to sample from the `trainset`
 #                    to consider as potential few-shot demonstrations.
 # teacher_lm/student_lm: Use the same configured LLM for both.
@@ -201,13 +219,13 @@ optimized_classifier = optimizer.compile(my_classifier, trainset=dev_examples_fo
 print("Prompt optimization complete!")
 
 # You can inspect the optimized program's demonstrations:
-# if hasattr(optimized_classifier.classify, 'demos') and optimized_classifier.classify.demos:
-#     print("\nOptimized Few-Shot Demos:")
-#     for demo in optimized_classifier.classify.demos:
-#         print(f"  Input: {demo.document_text[:80]}...")
-#         print(f"  Output: {demo.ground_truth_label}")
-# else:
-#     print("\nNo few-shot demonstrations were added by the optimizer (or demos attribute not found).")
+if hasattr(optimized_classifier.classify, 'demos') and optimized_classifier.classify.demos:
+    print("\nOptimized Few-Shot Demos:")
+    for demo in optimized_classifier.classify.demos:
+        print(f"  Input: {demo.document_text[:80]}...")
+        print(f"  Output: {demo.ground_truth_label}")
+else:
+    print("\nNo few-shot demonstrations were added by the optimizer (or demos attribute not found).")
 
 
 # --- 6. Evaluate the Optimized Prompt ---
@@ -241,24 +259,36 @@ for i, example in enumerate(test_examples):
     except Exception as e:
         print(f"Error predicting for example {i}: {e}")
         y_true.append(example.ground_truth_label)
-        y_pred.append("ERROR_PREDICTION") # Mark as an error
+        y_pred.append("ERROR_PREDICTION") # Mark as an error to see if it impacts overall metrics
 
 # Ensure y_pred contains only valid labels for scikit-learn's classification_report
 # Or, if you want to see how often it predicts invalid labels, make them part of your 'labels'
-unique_pred_labels = set(y_pred)
-combined_labels_for_report = sorted(list(set(all_class_names) | unique_pred_labels)) # Include all potential labels
+# For the classification report, it's best if y_pred only contains labels present in all_class_names.
+# We'll map any invalid predictions to a placeholder, or filter them out if they are truly not relevant.
+# Here, we'll replace invalid predictions with a placeholder 'INVALID_PREDICTION'
+# so they are still part of the report, but clearly show up as wrong.
+y_pred_for_report = [p if p in all_class_names else 'INVALID_PREDICTION' for p in y_pred]
+
+# Dynamically add 'INVALID_PREDICTION' to labels if it appeared
+report_labels = list(all_class_names)
+if 'INVALID_PREDICTION' in y_pred_for_report:
+    report_labels.append('INVALID_PREDICTION')
+report_labels = sorted(list(set(report_labels))) # Ensure unique and sorted for consistency
 
 print("\n--- Scikit-learn Classification Report ---")
 try:
-    print(classification_report(y_true, y_pred, labels=all_class_names, zero_division=0))
+    # Use labels parameter to ensure all known classes are in the report,
+    # even if no instances were predicted for them.
+    # And include 'INVALID_PREDICTION' if it occurred.
+    print(classification_report(y_true, y_pred_for_report, labels=report_labels, zero_division=0))
 except ValueError as e:
     print(f"Error generating classification report: {e}")
     print("This usually happens if `y_true` or `y_pred` contain labels not in `labels` argument.")
     print(f"Unique y_true labels: {set(y_true)}")
-    print(f"Unique y_pred labels: {set(y_pred)}")
-    print(f"Expected labels (all_class_names): {set(all_class_names)}")
+    print(f"Unique y_pred labels (for report): {set(y_pred_for_report)}")
+    print(f"Labels used in report: {set(report_labels)}")
 
-print(f"Overall Accuracy (sklearn): {accuracy_score(y_true, y_pred)}")
+print(f"Overall Accuracy (sklearn, using cleaned predictions): {accuracy_score(y_true, y_pred_for_report)}")
 
 # --- Optional: Save and Load the Optimized Program ---
 # This allows you to use the optimized prompt without re-running optimization

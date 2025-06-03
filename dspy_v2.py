@@ -106,62 +106,132 @@ class SimpleClassifier(dspy.Module):
 
 # --- 6. Metric Function with Enhanced Debugging ---
 metric_call_count = 0
-def precision_accuracy_metric(gold: List[dspy.Example | Any], preds: List[dspy.Prediction], trace=None) -> float:
+def precision_accuracy_metric(gold: List[dspy.Example], preds: List[dspy.Prediction], trace=None) -> float:
     global metric_call_count
     metric_call_count += 1
-    print(f"\n--- DEBUG: precision_accuracy_metric call #{metric_call_count} ---")
-    print(f"Trace object: {trace}") # Trace is often None during optimizer, but not always
+    print(f"\n--- METRIC CALL #{metric_call_count} --- Trace: {trace is not None} ---")
 
     if not gold:
-        print("DEBUG METRIC: 'gold' list is empty or None. Returning 0.0")
+        print("METRIC WARNING: 'gold' (dev_data) list is empty. Returning 0.0")
         return 0.0
-
-    print(f"DEBUG METRIC: Length of 'gold': {len(gold)}")
-    print(f"DEBUG METRIC: Type of 'gold' list: {type(gold)}")
-    print(f"DEBUG METRIC: Type of first element gold[0]: {type(gold[0])}")
-
-    if not isinstance(gold[0], dspy.Example):
-        print(f"DEBUG METRIC FATAL ERROR: gold[0] is NOT a dspy.Example. Value: {gold[0]}")
-        print("This means the 'dev_data' passed to the optimizer (implicitly via global scope or explicitly via evaluate) is malformed.")
-        raise TypeError(f"FATAL: Expected dspy.Example in gold data, got {type(gold[0])}: {gold[0]}")
-    else:
-        print(f"DEBUG METRIC: gold[0] is a dspy.Example. Keys: {gold[0].keys()}")
-        if not hasattr(gold[0], 'true_class'):
-            print(f"DEBUG METRIC FATAL ERROR: gold[0] (Value: {gold[0]}) LACKS 'true_class' attribute.")
-            raise AttributeError(f"FATAL: Gold example {gold[0]} is missing 'true_class' field.")
-        print(f"DEBUG METRIC: gold[0].true_class value: {gold[0].true_class}")
+    if not preds:
+        print("METRIC WARNING: 'preds' list is empty. Returning 0.0") # Should not happen if gold is not empty
+        return 0.0
 
     gold_labels = []
     for i, g in enumerate(gold):
-        print(f"DEBUG METRIC: Processing gold item #{i}, type: {type(g)}") # Print type of each item
-        if not isinstance(g, dspy.Example): # Check every item, not just the first
-            print(f"DEBUG METRIC FATAL ERROR: Gold item #{i} is NOT a dspy.Example. Value: {g}")
-            raise TypeError(f"FATAL: Expected dspy.Example for gold item #{i}, got {type(g)}: {g}")
-        if not hasattr(g, 'true_class'):
-            print(f"DEBUG METRIC FATAL ERROR: Gold item #{i} (Value: {g}) LACKS 'true_class' attribute.")
-            raise AttributeError(f"FATAL: Gold example #{i} {g} is missing 'true_class' field.")
-        
-        gold_labels.append(g.true_class) # <--- ERROR SITE IF g IS A STRING
+        if not isinstance(g, dspy.Example):
+            print(f"METRIC ERROR: gold[{i}] is not a dspy.Example. Type: {type(g)}, Val: {g}")
+            raise TypeError("Malformed gold data in metric.")
+        if not hasattr(g, 'true_class') or g.true_class is None: # Check for None explicitly
+            print(f"METRIC ERROR: gold[{i}] (Text: {getattr(g, 'text', 'N/A')}) missing 'true_class' or it's None. Val: {g}")
+            raise ValueError("Gold example missing true_class or it's None.")
+        if not isinstance(g.true_class, str) or not g.true_class.strip(): # Ensure it's a non-empty string
+             print(f"METRIC ERROR: gold[{i}].true_class is not a valid string: '{g.true_class}' (Type: {type(g.true_class)})")
+             raise ValueError("Gold true_class is not a valid string.")
+        gold_labels.append(g.true_class)
 
-    # ... (rest of your metric function: pred_labels, calculations, prints)
     pred_labels = []
-    for p_idx, p in enumerate(preds):
-        if not hasattr(p, 'predicted_class') or not isinstance(p.predicted_class, str):
-            pred_labels.append("MALFORMED_PRED")
+    for i, p in enumerate(preds):
+        if not isinstance(p, dspy.Prediction):
+            print(f"METRIC WARNING: preds[{i}] is not a dspy.Prediction. Type: {type(p)}, Val: {p}. Skipping.")
+            # Decide how to handle: skip, add placeholder, or error
+            # For now, let's try to make lists same length if gold_labels is longer. This is risky.
+            # A better approach might be to ensure LLM always returns something or have a default.
+            if len(pred_labels) < len(gold_labels): # If we skip, lists might mismatch
+                 pred_labels.append("INVALID_PRED_TYPE_" + random.choice(ALL_CLASSES)) # Placeholder
             continue
-        raw_pred = p.predicted_class.strip().replace("'", "").replace('"', '').replace('.', '')
-        if raw_pred in ALL_CLASSES: pred_labels.append(raw_pred)
-        else:
-            matched_class = next((kc for kc in ALL_CLASSES if kc in raw_pred), raw_pred)
-            pred_labels.append(matched_class)
+        if not hasattr(p, 'predicted_class') or p.predicted_class is None:
+            print(f"METRIC WARNING: preds[{i}] missing 'predicted_class' or it's None. Gold text: {gold[i].text if i < len(gold) else 'N/A'}. Using a placeholder.")
+            pred_labels.append("MISSING_PRED_" + random.choice(ALL_CLASSES)) # Placeholder
+            continue
+        
+        raw_pred = str(p.predicted_class).strip() # Ensure it's a string
+        if not raw_pred: # Empty prediction
+            print(f"METRIC WARNING: preds[{i}] resulted in empty string after strip. Gold text: {gold[i].text if i < len(gold) else 'N/A'}. Using a placeholder.")
+            pred_labels.append("EMPTY_PRED_" + random.choice(ALL_CLASSES))
+            continue
 
-    macro_precision = precision_score(gold_labels, pred_labels, average='macro', zero_division=0, labels=ALL_CLASSES)
-    accuracy = accuracy_score(gold_labels, pred_labels)
-    if trace is None:
-        print(f"Validation Metrics: Macro Precision: {macro_precision:.4f}, Accuracy: {accuracy:.4f}")
-        # print(classification_report(gold_labels, pred_labels, zero_division=0, labels=ALL_CLASSES, target_names=ALL_CLASSES))
-    print("--- END DEBUG: precision_accuracy_metric ---")
-    return macro_precision
+        # Simple normalization (you might need more sophisticated logic)
+        # Try to find an exact match first
+        best_match = raw_pred
+        if raw_pred not in ALL_CLASSES:
+            # If not exact, check if any known class is a substring of the prediction
+            # Or if the prediction is a substring of a known class (less likely for your codes)
+            found_substring_match = False
+            for known_class in ALL_CLASSES:
+                if known_class in raw_pred: # e.g., pred is "Category RC_01"
+                    best_match = known_class
+                    found_substring_match = True
+                    break
+            if not found_substring_match:
+                 # If still no match, it's an unknown prediction. It will hurt precision for its true class.
+                 # Keep `best_match = raw_pred` which is the original unknown prediction.
+                 print(f"METRIC INFO: Prediction '{raw_pred}' not in ALL_CLASSES. Gold: {gold[i].true_class if i < len(gold) else 'N/A'}")
+        
+        pred_labels.append(best_match)
+
+    print(f"METRIC INFO: Length of gold_labels: {len(gold_labels)}")
+    print(f"METRIC INFO: Length of pred_labels: {len(pred_labels)}")
+
+    # Ensure lists are of the same length before passing to sklearn.
+    # This is a critical step. DSPy should ensure this, but defensive check is good.
+    if len(gold_labels) != len(pred_labels):
+        print(f"METRIC CRITICAL ERROR: Mismatch in lengths! gold_labels ({len(gold_labels)}), pred_labels ({len(pred_labels)})")
+        # This should ideally not happen if DSPy's evaluation loop is correct.
+        # If it does, we cannot reliably calculate metrics.
+        # Option 1: Raise an error.
+        # Option 2: Truncate to the shorter length (information loss).
+        # Option 3: Return a very bad score.
+        print("Gold Labels sample:", gold_labels[:5])
+        print("Pred Labels sample:", pred_labels[:5])
+        # For debugging, let's allow it to error out in sklearn if this happens, or return 0
+        # raise ValueError("CRITICAL: Mismatch in length of gold and pred labels for metric calculation.")
+        return 0.0 # Or some very low score to indicate a serious problem
+
+    if not gold_labels: # Should be caught by `if not gold:` but as a safeguard
+        print("METRIC WARNING: gold_labels list is empty before scikit-learn. Returning 0.0")
+        return 0.0
+
+    print(f"METRIC INFO: Unique gold labels: {sorted(list(set(gold_labels)))}")
+    print(f"METRIC INFO: Unique pred labels: {sorted(list(set(pred_labels)))}")
+    # Ensure all labels in pred_labels that are not in gold_labels are at least covered by ALL_CLASSES for the report
+    # `labels=ALL_CLASSES` in precision_score and classification_report handles this.
+
+    final_score = 0.0
+    try:
+        macro_precision = precision_score(gold_labels, pred_labels, average='macro', zero_division=0, labels=ALL_CLASSES)
+        accuracy = accuracy_score(gold_labels, pred_labels)
+        final_score = macro_precision
+
+        # Only print full report if trace is None (typically final eval)
+        if trace is None and metric_call_count % 1 == 0 : # Print every time for now during debugging
+            print(f"METRIC Scores: Macro Precision: {macro_precision:.4f}, Accuracy: {accuracy:.4f}")
+            print("Detailed Classification Report:")
+            # Ensure no new labels in pred_labels that are not in ALL_CLASSES cause issues.
+            # `labels=ALL_CLASSES` should handle this by restricting the report to these classes.
+            # However, if pred_labels contains items NOT in ALL_CLASSES, they will be ignored for per-class metrics
+            # unless they happen to match a gold_label that IS in ALL_CLASSES (which is fine).
+            # If a pred_label is totally novel AND its corresponding gold_label is in ALL_CLASSES, it's a misclassification.
+            report = classification_report(gold_labels, pred_labels, zero_division=0, labels=ALL_CLASSES, target_names=ALL_CLASSES)
+            print(report)
+
+    except ValueError as ve:
+        print(f"METRIC ERROR during scikit-learn calculation: {ve}")
+        print("This can happen if pred_labels contain values not in 'labels' and also not in 'gold_labels' set, "
+              "or if either list is empty in an unexpected way.")
+        print("Problematic Gold Labels:", gold_labels)
+        print("Problematic Pred Labels:", pred_labels)
+        traceback.print_exc()
+        return 0.0 # Return a penalty score
+    except Exception as e:
+        print(f"METRIC UNEXPECTED ERROR during scikit-learn calculation: {e}")
+        traceback.print_exc()
+        return 0.0 # Return a penalty score
+
+    print(f"--- METRIC RETURNING SCORE: {final_score:.4f} ---")
+    return final_score
+
 
 # --- 7. Optimizer Setup and Compilation ---
 # ... (all previous code for BootstrapFewShot setup, including SimpleClassifier) ...

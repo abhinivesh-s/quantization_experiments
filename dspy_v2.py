@@ -104,67 +104,63 @@ class SimpleClassifier(dspy.Module):
     def forward(self, text: str) -> dspy.Prediction:
         return self.classifier(text=text)
 
-# --- 6. Metric Function ---
-def precision_accuracy_metric(gold: List[dspy.Example], preds: List[dspy.Prediction], trace=None) -> float:
-    gold_labels = [g.true_class for g in gold]
+# --- 6. Metric Function with Enhanced Debugging ---
+metric_call_count = 0
+def precision_accuracy_metric(gold: List[dspy.Example | Any], preds: List[dspy.Prediction], trace=None) -> float:
+    global metric_call_count
+    metric_call_count += 1
+    print(f"\n--- DEBUG: precision_accuracy_metric call #{metric_call_count} ---")
+    print(f"Trace object: {trace}") # Trace is often None during optimizer, but not always
+
+    if not gold:
+        print("DEBUG METRIC: 'gold' list is empty or None. Returning 0.0")
+        return 0.0
+
+    print(f"DEBUG METRIC: Length of 'gold': {len(gold)}")
+    print(f"DEBUG METRIC: Type of 'gold' list: {type(gold)}")
+    print(f"DEBUG METRIC: Type of first element gold[0]: {type(gold[0])}")
+
+    if not isinstance(gold[0], dspy.Example):
+        print(f"DEBUG METRIC FATAL ERROR: gold[0] is NOT a dspy.Example. Value: {gold[0]}")
+        print("This means the 'dev_data' passed to the optimizer (implicitly via global scope or explicitly via evaluate) is malformed.")
+        raise TypeError(f"FATAL: Expected dspy.Example in gold data, got {type(gold[0])}: {gold[0]}")
+    else:
+        print(f"DEBUG METRIC: gold[0] is a dspy.Example. Keys: {gold[0].keys()}")
+        if not hasattr(gold[0], 'true_class'):
+            print(f"DEBUG METRIC FATAL ERROR: gold[0] (Value: {gold[0]}) LACKS 'true_class' attribute.")
+            raise AttributeError(f"FATAL: Gold example {gold[0]} is missing 'true_class' field.")
+        print(f"DEBUG METRIC: gold[0].true_class value: {gold[0].true_class}")
+
+    gold_labels = []
+    for i, g in enumerate(gold):
+        print(f"DEBUG METRIC: Processing gold item #{i}, type: {type(g)}") # Print type of each item
+        if not isinstance(g, dspy.Example): # Check every item, not just the first
+            print(f"DEBUG METRIC FATAL ERROR: Gold item #{i} is NOT a dspy.Example. Value: {g}")
+            raise TypeError(f"FATAL: Expected dspy.Example for gold item #{i}, got {type(g)}: {g}")
+        if not hasattr(g, 'true_class'):
+            print(f"DEBUG METRIC FATAL ERROR: Gold item #{i} (Value: {g}) LACKS 'true_class' attribute.")
+            raise AttributeError(f"FATAL: Gold example #{i} {g} is missing 'true_class' field.")
+        
+        gold_labels.append(g.true_class) # <--- ERROR SITE IF g IS A STRING
+
+    # ... (rest of your metric function: pred_labels, calculations, prints)
     pred_labels = []
-
-    for p in preds:
-        raw_pred = p.predicted_class.strip() # Get the predicted class string
-        # Simple cleaning: sometimes models add quotes or periods.
-        raw_pred = raw_pred.replace("'", "").replace('"', '').replace('.', '')
-
-        # Check if the raw prediction is one of the known classes
-        if raw_pred in ALL_CLASSES:
-            pred_labels.append(raw_pred)
+    for p_idx, p in enumerate(preds):
+        if not hasattr(p, 'predicted_class') or not isinstance(p.predicted_class, str):
+            pred_labels.append("MALFORMED_PRED")
+            continue
+        raw_pred = p.predicted_class.strip().replace("'", "").replace('"', '').replace('.', '')
+        if raw_pred in ALL_CLASSES: pred_labels.append(raw_pred)
         else:
-            # If not an exact match, try to find a known class within the prediction string
-            # This is a basic attempt; more sophisticated matching might be needed for messy outputs
-            matched_class = None
-            for known_class in ALL_CLASSES:
-                if known_class in raw_pred:
-                    matched_class = known_class
-                    break
-            if matched_class:
-                pred_labels.append(matched_class)
-            else:
-                # If no known class is found, append the raw prediction.
-                # This might lead to Scikit-learn treating it as a new, incorrect class.
-                # Or, you could assign a default "unknown" or one of the classes if appropriate.
-                pred_labels.append(raw_pred) # Or handle as 'unknown'
-                # print(f"Warning: Prediction '{raw_pred}' not in known classes. Gold: {gold[len(pred_labels)-1].true_class if len(pred_labels)-1 < len(gold) else 'N/A'}")
+            matched_class = next((kc for kc in ALL_CLASSES if kc in raw_pred), raw_pred)
+            pred_labels.append(matched_class)
 
-
-    # Calculate macro-averaged precision (KPI)
-    # `zero_division=0` means if a class has no predicted samples, its precision is 0.
-    # `labels=ALL_CLASSES` ensures all predefined classes are considered.
     macro_precision = precision_score(gold_labels, pred_labels, average='macro', zero_division=0, labels=ALL_CLASSES)
     accuracy = accuracy_score(gold_labels, pred_labels)
-
-    print(f"\n--- Validation Metrics ---")
-    print(f"KPI (Macro Precision): {macro_precision:.4f}")
-    print(f"Overall Accuracy: {accuracy:.4f}")
-    print("Detailed Classification Report (may be long for 37 classes, showing sample):")
-    # Use `labels=ALL_CLASSES` and `target_names=ALL_CLASSES`
-    # The report can be very long for 37 classes, so you might want to summarize it
-    # or only print it if a flag is set.
-    try:
-        report = classification_report(
-            gold_labels,
-            pred_labels,
-            zero_division=0,
-            labels=ALL_CLASSES,
-            target_names=ALL_CLASSES
-        )
-        print(report)
-    except ValueError as e:
-        print(f"Could not generate classification report: {e}")
-        print("This can happen if predicted labels contain values not in 'labels' and not in 'gold_labels'.")
-        print(f"Unique Gold Labels: {sorted(list(set(gold_labels)))}")
-        print(f"Unique Pred Labels: {sorted(list(set(pred_labels)))}")
-
-
-    print("-------------------------\n")
+    if trace is None:
+        print(f"Validation Metrics: Macro Precision: {macro_precision:.4f}, Accuracy: {accuracy:.4f}")
+        # print(classification_report(gold_labels, pred_labels, zero_division=0, labels=ALL_CLASSES, target_names=ALL_CLASSES))
+    print("--- END DEBUG: precision_accuracy_metric ---")
     return macro_precision
 
 # --- 7. Optimizer Setup and Compilation ---

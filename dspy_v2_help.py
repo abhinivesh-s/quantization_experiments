@@ -73,97 +73,153 @@ class SimpleClassifier(dspy.Module): # ... as before
 
 
 # --- Hyper-Defensive Metric Function ---
+# --- Metric Function - Adaptable to Single or Multiple Examples ---
 metric_call_count = 0
-def precision_accuracy_metric(gold: List[Any], preds: List[Any], trace=None) -> float:
+def precision_accuracy_metric(
+    gold: Union[dspy.Example, List[dspy.Example]], # Can be a single Example or a List
+    preds: Union[dspy.Prediction, List[dspy.Prediction]], # Can be a single Prediction or a List
+    trace=None
+) -> float:
     global metric_call_count
     metric_call_count += 1
-    print(f"\n--- METRIC CALL #{metric_call_count} --- ENTER --- Trace: {trace is not None} ---")
-    print(f"Type of gold: {type(gold)}, Length: {len(gold) if gold else 0}")
-    print(f"Type of preds: {type(preds)}, Length: {len(preds) if preds else 0}")
+    current_call_id = f"MetricCall-{metric_call_count}"
+    print(f"\n--- {current_call_id} --- ENTER --- Trace: {trace is not None} ---")
 
-    # === DSPY BUG WORKAROUND/DETECTION BLOCK ===
-    if gold and isinstance(gold[0], str):
+    # --- Normalize inputs to always be lists ---
+    # This is a key change to handle both single and list inputs.
+    if isinstance(gold, dspy.Example):
+        gold_list = [gold]
+        print(f"  {current_call_id}: Received single dspy.Example for 'gold'. Converted to list.")
+    elif isinstance(gold, list):
+        gold_list = gold
+    else:
+        print(f"  {current_call_id}: ERROR - 'gold' is of unexpected type: {type(gold)}. Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Invalid Gold Type) ---")
+        return 0.0
+
+    if isinstance(preds, dspy.Prediction):
+        preds_list = [preds]
+        print(f"  {current_call_id}: Received single dspy.Prediction for 'preds'. Converted to list.")
+    elif isinstance(preds, list):
+        preds_list = preds
+    else:
+        print(f"  {current_call_id}: ERROR - 'preds' is of unexpected type: {type(preds)}. Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Invalid Preds Type) ---")
+        return 0.0
+    
+    print(f"  {current_call_id}: Normalized Gold length: {len(gold_list)}, Normalized Preds length: {len(preds_list)}")
+
+    # --- Initial Checks (using normalized lists) ---
+    if not gold_list:
+        print(f"  {current_call_id}: WARNING - Normalized `gold_list` is empty. Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Empty Gold List) ---")
+        return 0.0
+    
+    # Check for the "string 'text' as gold[0]" specific issue, if it's still a concern
+    # This check should be against gold_list[0] now
+    if isinstance(gold_list[0], str):
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        print(f"METRIC DETECTED UNEXPECTED `gold[0]` TYPE: {type(gold[0])}, VALUE: '{gold[0]}'")
-        if gold[0] == "text" and len(gold) == 1: # Check for the specific "text" string scenario
-            print("  This matches the suspected DSPy issue where a field name is passed as data.")
-            print("  Attempting to gracefully handle by returning a penalty score (0.0).")
-            print("  This specific metric call will be skipped for calculation.")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            return 0.0 # Return a penalty score and skip this evaluation
+        print(f"  {current_call_id}: METRIC DETECTED UNEXPECTED `gold_list[0]` TYPE: {type(gold_list[0])}, VALUE: '{gold_list[0]}'")
+        if gold_list[0] == "text" and len(gold_list) == 1:
+            print("    This matches a suspected DSPy issue. Returning 0.0.")
+            print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Suspected DSPy String Issue) ---")
+            return 0.0
         else:
-            print("  `gold[0]` is a string, but not the specific 'text' case. This is also unexpected.")
-            print("  Proceeding with caution, but this is likely to fail.")
-            # Fall through to normal error handling if it's a different string.
-    # === END DSPY BUG WORKAROUND/DETECTION BLOCK ===
+            print("    `gold_list[0]` is a string, but not the specific 'text' case. Returning 0.0.")
+            print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Unexpected String in Gold) ---")
+            return 0.0
+    
+    if not isinstance(gold_list[0], dspy.Example):
+        print(f"  {current_call_id}: ERROR - `gold_list[0]` is not dspy.Example (Type: {type(gold_list[0])}). Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Malformed Gold after String Check) ---")
+        return 0.0
 
-    if not gold or not isinstance(gold[0], dspy.Example): # If not the string "text" bug, but still bad
-        print(f"METRIC ERROR: `gold` data is malformed or empty despite workaround.")
-        print(f"  Type of gold[0] now: {type(gold[0]) if gold else 'N/A'}, Value: {gold[0] if gold else 'N/A'}")
-        # This means the workaround didn't catch it, or it's a different issue.
-        return 0.0 # Penalty score
+    if len(gold_list) != len(preds_list):
+        print(f"  {current_call_id}: CRITICAL - LENGTH MISMATCH! Gold: {len(gold_list)}, Preds: {len(preds_list)}. Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Length Mismatch) ---")
+        return 0.0
 
-    # --- Standard Gold Label Extraction (assuming gold is now List[dspy.Example]) ---
+    # --- Gold Label Extraction ---
     gold_labels = []
     try:
-        for i, g in enumerate(gold):
+        for i, g in enumerate(gold_list):
             if not isinstance(g, dspy.Example) or not hasattr(g, 'true_class') or \
                not isinstance(g.true_class, str) or not g.true_class.strip():
-                print(f"METRIC ERROR: Malformed dspy.Example in gold at index {i}. Val: {g}. Skipping this metric call.")
-                return 0.0 # Problem with an individual example
+                print(f"  {current_call_id}: ERROR - Malformed dspy.Example in gold_list at index {i}. Returning 0.0")
+                print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Bad Gold Item) ---")
+                return 0.0
             gold_labels.append(g.true_class)
     except Exception as e_gold_proc:
-        print(f"METRIC CRITICAL ERROR processing gold labels: {e_gold_proc}")
+        print(f"  {current_call_id}: CRITICAL ERROR processing gold labels: {e_gold_proc}")
         traceback.print_exc()
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Gold Processing Error) ---")
         return 0.0
 
-    # --- Standard Prediction Label Extraction & Normalization ---
+    # --- Prediction Label Extraction & Normalization ---
     pred_labels = []
-    if len(preds) != len(gold): # Basic check, DSPy should handle this
-        print(f"METRIC WARNING: preds length ({len(preds)}) != gold length ({len(gold)}). This is problematic.")
-        # Pad pred_labels or return 0.0. For now, returning 0.0 is safer.
-        return 0.0
-
-    for i, p in enumerate(preds):
+    for i, p in enumerate(preds_list):
         if not isinstance(p, dspy.Prediction) or not hasattr(p, 'predicted_class') or p.predicted_class is None:
             pred_labels.append("INVALID_PRED_" + random.choice(ALL_CLASSES)) # Placeholder
             continue
         raw_pred = str(p.predicted_class).strip()
-        if not raw_pred:
-            pred_labels.append("EMPTY_PRED_" + random.choice(ALL_CLASSES)) # Placeholder
-            continue
-        
+        if not raw_pred: pred_labels.append("EMPTY_PRED_" + random.choice(ALL_CLASSES)); continue
         best_match = raw_pred
-        if raw_pred not in ALL_CLASSES: # Simple normalization
-            best_match = next((kc for kc in ALL_CLASSES if kc in raw_pred), raw_pred)
+        if raw_pred not in ALL_CLASSES: best_match = next((kc for kc in ALL_CLASSES if kc in raw_pred), raw_pred)
         pred_labels.append(best_match)
-
+    
     # --- Scikit-learn Calculation ---
-    if not gold_labels: # Should have been caught if gold was empty
-        print("METRIC WARNING: gold_labels list became empty. Returning 0.0")
+    if not gold_labels:
+        print(f"  {current_call_id}: WARNING - gold_labels list became empty. Returning 0.0")
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Empty Gold Labels) ---")
         return 0.0
         
     final_score = 0.0
     try:
-        macro_precision = precision_score(gold_labels, pred_labels, average='macro', zero_division=0, labels=ALL_CLASSES)
-        final_score = macro_precision
-        if trace is None or metric_call_count % 1 == 0: # Log periodically or on final eval
-            accuracy = accuracy_score(gold_labels, pred_labels)
-            print(f"METRIC Scores: Macro Precision: {macro_precision:.4f}, Accuracy: {accuracy:.4f}")
-            # print(classification_report(gold_labels, pred_labels, zero_division=0, labels=ALL_CLASSES, target_names=ALL_CLASSES))
-    except ValueError as ve: # Specific sklearn error
-        print(f"METRIC ERROR during scikit-learn (ValueError): {ve}")
-        print(f"  Gold labels ({len(gold_labels)}): {gold_labels[:5]}...")
-        print(f"  Pred labels ({len(pred_labels)}): {pred_labels[:5]}...")
-        traceback.print_exc()
-        return 0.0 # Penalty score
-    except Exception as e_sklearn: # Other sklearn errors
-        print(f"METRIC UNEXPECTED ERROR during scikit-learn: {e_sklearn}")
-        traceback.print_exc()
-        return 0.0 # Penalty score
+        # When len(gold_labels) == 1, macro precision might behave poorly or give warnings.
+        # sklearn's precision_score with average='macro' on a single sample:
+        # If correct: P=1 for that class, 0 for others. Macro P = 1/N_classes.
+        # If incorrect: P=0 for true class, P=0 for predicted (if different & no other TP/FP), 0 for others. Macro P = 0.
+        # So, for a single item, it's essentially 1/N_classes if correct, 0 if incorrect.
+        # This might not be the ideal "score" for a single instance if optimizers expect values closer to 1.
+        
+        if len(gold_labels) == 1:
+            print(f"  {current_call_id}: Calculating score for a single example.")
+            # For a single example, macro precision is 1/num_classes if correct, 0 if incorrect.
+            # Or, simply use accuracy for a single item.
+            is_correct = (gold_labels[0] == pred_labels[0])
+            single_item_score = 1.0 if is_correct else 0.0
+            final_score = single_item_score # Using simple accuracy for single item scoring
+            print(f"    Single item: Gold='{gold_labels[0]}', Pred='{pred_labels[0]}'. Correct: {is_correct}. Score: {final_score:.4f}")
+        else:
+            # Normal calculation for lists
+            macro_precision = precision_score(gold_labels, pred_labels, average='macro', zero_division=0, labels=ALL_CLASSES)
+            final_score = macro_precision
+            if final_score == 0.0:
+                print(f"  {current_call_id}: >>> KPI (Macro Precision for list) calculated as 0.0 <<<")
 
-    print(f"--- METRIC RETURNING SCORE: {final_score:.4f} ---")
+        if trace is None or metric_call_count % 1 == 0 or len(gold_labels) > 1: # Log more for lists or final
+             if len(gold_labels) > 1: # Only print accuracy if we have multiple items for it to make sense
+                accuracy = accuracy_score(gold_labels, pred_labels)
+                print(f"  {current_call_id}: Scores (list) - Macro Precision: {final_score:.4f}, Accuracy: {accuracy:.4f}")
+            # if final_score == 0.0 and len(gold_labels) > 1 and (trace is None):
+            #     print("    Classification Report (when list KPI is 0.0):")
+            #     print(classification_report(gold_labels, pred_labels, zero_division=0, labels=ALL_CLASSES, target_names=ALL_CLASSES))
+            
+    except ValueError as ve: # sklearn error
+        print(f"  {current_call_id}: ERROR during scikit-learn (ValueError): {ve}")
+        traceback.print_exc()
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Sklearn ValueError) ---")
+        return 0.0
+    except Exception as e_sklearn: # other sklearn errors
+        print(f"  {current_call_id}: UNEXPECTED ERROR during scikit-learn: {e_sklearn}")
+        traceback.print_exc()
+        print(f"--- {current_call_id} --- EXITING WITH SCORE: 0.0 (Sklearn Other Error) ---")
+        return 0.0
+
+    print(f"--- {current_call_id} --- EXITING WITH SCORE: {final_score:.4f} ---")
     return final_score
+# --- End Metric Function ---
+
 # --- End Metric Function ---
 
 

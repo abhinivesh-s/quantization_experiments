@@ -224,12 +224,32 @@ def precision_accuracy_metric(
 
 
 # --- Main Execution Block ---
+import dspy
+import os
+from typing import List, Dict, Any
+from sklearn.metrics import precision_score, accuracy_score, classification_report
+import random
+import pandas as pd
+import traceback
+from dspy.evaluate import Evaluate # Import the Evaluate class
+
+# --- Configuration, Data, Signature, Module, Metric (Assume these are well-defined and validated) ---
+# ... (Your existing, perfected code for these sections)
+# Make sure train_data and dev_data are populated with valid dspy.Example objects.
+# Your precision_accuracy_metric should be robust as developed earlier.
+# --- End Setup ---
+
+# --- Main Execution Block ---
 if __name__ == "__main__":
-    # --- YOUR PERFECTED DATA LOADING AND SANITY CHECKS FOR train_data and dev_data HERE ---
-    # ... (ensure train_data and dev_data are correctly populated lists of dspy.Example)
+    # --- YOUR PERFECTED DATA LOADING AND SANITY CHECKS ---
     # Example placeholder:
+    ALL_CLASSES = [f"RC_{i:02d}" for i in range(1, 6)] # Ensure ALL_CLASSES is defined
+    CLASS_DEFINITIONS_STR = "Classes: " + ", ".join(ALL_CLASSES) # Ensure CLASS_DEFINITIONS_STR is defined
+
     train_df = pd.DataFrame({'text': [f"t{i}" for i in range(5)], 'RCC': [random.choice(ALL_CLASSES) for _ in range(5)]})
     dev_df = pd.DataFrame({'text': [f"d{i}" for i in range(3)], 'RCC': [random.choice(ALL_CLASSES) for _ in range(3)]})
+    
+    # Assuming create_perfect_dspy_examples or similar robust loading
     train_data = [dspy.Example(text=row['text'], true_class=row['RCC']).with_inputs('text') for _, row in train_df.iterrows()]
     dev_data = [dspy.Example(text=row['text'], true_class=row['RCC']).with_inputs('text') for _, row in dev_df.iterrows()]
     # --- END DATA LOADING ---
@@ -240,83 +260,96 @@ if __name__ == "__main__":
 
     # 1. Create an instance of your UNCOMPILED module
     uncompiled_classifier = SimpleClassifier(class_definitions_str=CLASS_DEFINITIONS_STR)
+    print(f"Type of uncompiled_classifier: {type(uncompiled_classifier)}")
 
-    # 2. OPTIONAL: Evaluate the UNCOMPILED module using dspy.evaluate.Evaluate
-    # This gives you a baseline.
+    # 2. Define an Evaluator instance that you will reuse
+    # This evaluator uses your custom metric and the dev_set
+    evaluator = Evaluate(
+        devset=dev_data,
+        metric=precision_accuracy_metric, # Your robust metric function
+        num_threads=1, # Adjust as needed
+        display_progress=True,
+        display_table=0 # Set to 0 to hide table, or >0 to show some examples
+    )
+    print("\n--- Evaluator Defined ---")
+
+    # 3. OPTIONAL: Evaluate the UNCOMPILED module using the defined evaluator
     if dev_data:
-        print("\n--- Evaluating UNCOMPILED Classifier (using dspy.evaluate.Evaluate) ---")
-        from dspy.evaluate import Evaluate # Make sure to import
-        evaluator_for_uncompiled = Evaluate(
-            devset=dev_data,
-            metric=precision_accuracy_metric,
-            num_threads=1, # Adjust as needed
-            display_progress=True,
-            display_table=0
-        )
-        uncompiled_score = evaluator_for_uncompiled(uncompiled_classifier)
-        print(f"Score for UNCOMPILED classifier: {uncompiled_score}")
+        print("\n--- Evaluating UNCOMPILED Classifier using explicitly defined Evaluator ---")
+        try:
+            uncompiled_score = evaluator(uncompiled_classifier) # Pass the module to the evaluator
+            print(f"Score for UNCOMPILED classifier: {uncompiled_score}")
+        except Exception as e_eval_uncompiled:
+            print(f"Error evaluating uncompiled classifier: {e_eval_uncompiled}")
+            traceback.print_exc()
         print("----------------------------------------------------------------------")
 
-
-    # 3. Set up the optimizer
+    # 4. Set up the optimizer
     optimizer = dspy.BootstrapFewShot(
-        metric=precision_accuracy_metric,
+        metric=precision_accuracy_metric, # Optimizer still needs the metric for its internal work
         max_bootstrapped_demos=2,
         max_labeled_demos=3,
     )
 
     print("\n--- Starting Compilation (BootstrapFewShot) ---")
-    print(f"Length of dev_data (used as 'gold' in metric for full eval): {len(dev_data)}")
+    # BootstrapFewShot typically modifies the student module in-place by adding demos.
+    # It might return the same student object or a thin wrapper that still primarily relies on the modified student.
+    compiled_module_object = None # To store the result of compile
     try:
-        # 4. COMPILE the module
-        compiled_classifier = optimizer.compile(
-            student=uncompiled_classifier, # Pass the uncompiled instance
+        # The 'student' (uncompiled_classifier) will be modified IN-PLACE by BootstrapFewShot
+        # The return value of compile() for BootstrapFewShot is typically the (now modified) student itself.
+        compiled_module_object = optimizer.compile(
+            student=uncompiled_classifier, # This object will be modified
             trainset=train_data
         )
         print("--- Compilation Finished ---")
+        print(f"Type of object returned by optimizer.compile(): {type(compiled_module_object)}")
+        print(f"Is returned object same as initial uncompiled_classifier? {id(compiled_module_object) == id(uncompiled_classifier)}")
+        # For BootstrapFewShot, the above is often True. The uncompiled_classifier is now "compiled" (has demos).
+
     except Exception as e:
         print(f"\n!!! ERROR DURING optimizer.compile() !!!")
-        # ... (your existing error handling) ...
+        print(f"Error message: {str(e)}")
+        traceback.print_exc()
         exit("Halting due to compilation error.")
 
-    # 5. Evaluate the COMPILED module using ITS OWN .evaluate() method
-    print("\n--- Evaluating COMPILED Classifier (using compiled_classifier.evaluate()) ---")
-    if dev_data and compiled_classifier: # Ensure compilation was successful
-        # The 'compiled_classifier' object returned by optimizer.compile() HAS an .evaluate() method
-        compiled_score_dict = compiled_classifier.evaluate(
-            dev_data, # The dataset to evaluate on
-            metric=precision_accuracy_metric,
-            display_progress=True,
-            display_table=5 # Show some examples of passes/fails
-        )
-        # compiled_classifier.evaluate() often returns a dictionary of scores or detailed results
-        # The exact return type can vary slightly or might just print.
-        # The primary effect is that your metric function is called and its prints are shown.
-        # If your metric returns a float, that's usually the main score.
-        # print(f"Evaluation results from compiled_classifier.evaluate(): {compiled_score_dict}")
-    elif not compiled_classifier:
-        print("Skipping evaluation of compiled classifier because compilation failed.")
+    # 5. Evaluate the "COMPILED" module (which is the in-place modified uncompiled_classifier)
+    #    using the SAME explicitly defined Evaluator.
+    print("\n--- Evaluating COMPILED/MODIFIED Classifier using explicitly defined Evaluator ---")
+    if dev_data and compiled_module_object is not None:
+        # We use 'compiled_module_object' which, for BootstrapFewShot, is typically
+        # the original 'uncompiled_classifier' instance that has been modified in-place.
+        try:
+            compiled_score = evaluator(compiled_module_object) # Pass the modified module to the evaluator
+            print(f"Score for COMPILED/MODIFIED classifier: {compiled_score}")
+        except Exception as e_eval_compiled:
+            print(f"Error evaluating compiled/modified classifier: {e_eval_compiled}")
+            traceback.print_exc()
+    elif compiled_module_object is None:
+         print("Skipping evaluation of compiled module as compilation did not return an object.")
     else:
-        print("No dev_data to evaluate the compiled classifier.")
+        print("No dev_data to evaluate the compiled/modified classifier.")
 
-    # --- Inspecting Optimized Prompt Components (on compiled_classifier) ---
-    if compiled_classifier:
-        print("\n--- Optimized Prompt Components (from compiled_classifier) ---")
-        # Access the underlying predictor, which might be nested if you have a complex module.
-        # For SimpleClassifier, it's straightforward:
-        final_predictor = compiled_classifier.classifier # Or however you access the dspy.Predict instance
-        
-        print("Optimized Instructions (potentially modified if your optimizer changes them):")
-        # For BootstrapFewShot, instructions usually remain as defined unless your module structure allows modification
-        # or if using an optimizer like MIPRO.
-        print(final_predictor.extended_signature.instructions if hasattr(final_predictor, 'extended_signature') else final_predictor.signature.instructions)
+    # --- Inspecting Optimized Prompt Components ---
+    # We inspect 'compiled_module_object' (which is the modified 'uncompiled_classifier')
+    if compiled_module_object is not None and isinstance(compiled_module_object, SimpleClassifier):
+        print("\n--- Optimized Prompt Components (from in-place modified classifier) ---")
+        # BootstrapFewShot adds demos to the dspy.Predict module within your SimpleClassifier
+        final_predictor = compiled_module_object.classifier # Access the dspy.Predict instance
 
+        print("Instructions (should be as originally defined in SimpleClassifier):")
+        print(final_predictor.signature.instructions)
 
         if final_predictor.demos:
-            print(f"\nOptimized Few-Shot Examples ({len(final_predictor.demos)} Demos):")
+            print(f"\nOptimized Few-Shot Examples ({len(final_predictor.demos)} Demos added by BootstrapFewShot):")
             for i, demo in enumerate(final_predictor.demos):
-                print(f"Demo {i+1}: {demo.toDict()}")
+                # demos are dspy.Example objects
+                print(f"Demo {i+1}: Input='{demo.get('text', 'N/A')}', Output='{demo.get('predicted_class', 'N/A')}'")
         else:
-            print("\nNo few-shot examples were selected/generated by the optimizer for the final predictor.")
+            print("\nNo few-shot examples were added to the classifier by the optimizer.")
+    elif compiled_module_object:
+        print(f"\n--- Prompt Components (object type: {type(compiled_module_object)}) ---")
+        print("Could not directly inspect as SimpleClassifier; structure might be different.")
+        # Add more sophisticated inspection if optimizer.compile returns a different wrapper type
     else:
-        print("Skipping prompt inspection because compilation failed.")
+        print("Skipping prompt inspection because compilation did not return an object.")

@@ -225,36 +225,98 @@ def precision_accuracy_metric(
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
-    # Assertions for train_data and dev_data should have passed above.
+    # --- YOUR PERFECTED DATA LOADING AND SANITY CHECKS FOR train_data and dev_data HERE ---
+    # ... (ensure train_data and dev_data are correctly populated lists of dspy.Example)
+    # Example placeholder:
+    train_df = pd.DataFrame({'text': [f"t{i}" for i in range(5)], 'RCC': [random.choice(ALL_CLASSES) for _ in range(5)]})
+    dev_df = pd.DataFrame({'text': [f"d{i}" for i in range(3)], 'RCC': [random.choice(ALL_CLASSES) for _ in range(3)]})
+    train_data = [dspy.Example(text=row['text'], true_class=row['RCC']).with_inputs('text') for _, row in train_df.iterrows()]
+    dev_data = [dspy.Example(text=row['text'], true_class=row['RCC']).with_inputs('text') for _, row in dev_df.iterrows()]
+    # --- END DATA LOADING ---
+
     if not train_data or not dev_data:
         print("CRITICAL: train_data or dev_data is empty. Exiting.")
         exit()
 
+    # 1. Create an instance of your UNCOMPILED module
     uncompiled_classifier = SimpleClassifier(class_definitions_str=CLASS_DEFINITIONS_STR)
+
+    # 2. OPTIONAL: Evaluate the UNCOMPILED module using dspy.evaluate.Evaluate
+    # This gives you a baseline.
+    if dev_data:
+        print("\n--- Evaluating UNCOMPILED Classifier (using dspy.evaluate.Evaluate) ---")
+        from dspy.evaluate import Evaluate # Make sure to import
+        evaluator_for_uncompiled = Evaluate(
+            devset=dev_data,
+            metric=precision_accuracy_metric,
+            num_threads=1, # Adjust as needed
+            display_progress=True,
+            display_table=0
+        )
+        uncompiled_score = evaluator_for_uncompiled(uncompiled_classifier)
+        print(f"Score for UNCOMPILED classifier: {uncompiled_score}")
+        print("----------------------------------------------------------------------")
+
+
+    # 3. Set up the optimizer
     optimizer = dspy.BootstrapFewShot(
         metric=precision_accuracy_metric,
-        max_bootstrapped_demos=2, # Keep small for debugging
-        max_labeled_demos=5,
+        max_bootstrapped_demos=2,
+        max_labeled_demos=3,
     )
 
     print("\n--- Starting Compilation (BootstrapFewShot) ---")
+    print(f"Length of dev_data (used as 'gold' in metric for full eval): {len(dev_data)}")
     try:
+        # 4. COMPILE the module
         compiled_classifier = optimizer.compile(
-            student=uncompiled_classifier,
-            trainset=train_data # dev_data is accessed globally by the metric
+            student=uncompiled_classifier, # Pass the uncompiled instance
+            trainset=train_data
         )
         print("--- Compilation Finished ---")
     except Exception as e:
         print(f"\n!!! ERROR DURING optimizer.compile() !!!")
-        print(f"Error message: {str(e)}")
-        traceback.print_exc()
-        print("If METRIC logs show detection of 'gold[0] == \"text\"', the workaround was triggered.")
-        print("This points to an issue with how DSPy calls the metric.")
-        exit("Halting.")
+        # ... (your existing error handling) ...
+        exit("Halting due to compilation error.")
 
-    print("\n--- Evaluating Compiled Classifier ---")
-    if dev_data:
-        # Explicitly pass the known-good dev_data for evaluation
-        compiled_classifier.evaluate(dev_data, metric=precision_accuracy_metric, display_progress=True, display_table=0)
+    # 5. Evaluate the COMPILED module using ITS OWN .evaluate() method
+    print("\n--- Evaluating COMPILED Classifier (using compiled_classifier.evaluate()) ---")
+    if dev_data and compiled_classifier: # Ensure compilation was successful
+        # The 'compiled_classifier' object returned by optimizer.compile() HAS an .evaluate() method
+        compiled_score_dict = compiled_classifier.evaluate(
+            dev_data, # The dataset to evaluate on
+            metric=precision_accuracy_metric,
+            display_progress=True,
+            display_table=5 # Show some examples of passes/fails
+        )
+        # compiled_classifier.evaluate() often returns a dictionary of scores or detailed results
+        # The exact return type can vary slightly or might just print.
+        # The primary effect is that your metric function is called and its prints are shown.
+        # If your metric returns a float, that's usually the main score.
+        # print(f"Evaluation results from compiled_classifier.evaluate(): {compiled_score_dict}")
+    elif not compiled_classifier:
+        print("Skipping evaluation of compiled classifier because compilation failed.")
     else:
-        print("No dev_data to evaluate.")
+        print("No dev_data to evaluate the compiled classifier.")
+
+    # --- Inspecting Optimized Prompt Components (on compiled_classifier) ---
+    if compiled_classifier:
+        print("\n--- Optimized Prompt Components (from compiled_classifier) ---")
+        # Access the underlying predictor, which might be nested if you have a complex module.
+        # For SimpleClassifier, it's straightforward:
+        final_predictor = compiled_classifier.classifier # Or however you access the dspy.Predict instance
+        
+        print("Optimized Instructions (potentially modified if your optimizer changes them):")
+        # For BootstrapFewShot, instructions usually remain as defined unless your module structure allows modification
+        # or if using an optimizer like MIPRO.
+        print(final_predictor.extended_signature.instructions if hasattr(final_predictor, 'extended_signature') else final_predictor.signature.instructions)
+
+
+        if final_predictor.demos:
+            print(f"\nOptimized Few-Shot Examples ({len(final_predictor.demos)} Demos):")
+            for i, demo in enumerate(final_predictor.demos):
+                print(f"Demo {i+1}: {demo.toDict()}")
+        else:
+            print("\nNo few-shot examples were selected/generated by the optimizer for the final predictor.")
+    else:
+        print("Skipping prompt inspection because compilation failed.")

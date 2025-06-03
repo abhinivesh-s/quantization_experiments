@@ -168,81 +168,84 @@ def precision_accuracy_metric(gold: List[dspy.Example], preds: List[dspy.Predict
     return macro_precision
 
 # --- 7. Optimizer Setup and Compilation ---
+# ... (all previous code for BootstrapFewShot setup, including SimpleClassifier) ...
+
+# --- 7. Optimizer Setup and Compilation (Corrected for BootstrapFewShot) ---
 if __name__ == "__main__":
     # Instantiate the uncompiled module
-    uncompiled_classifier = SimpleClassifier(class_definitions_str=CLASS_DEFINITIONS_STR)
+    uncompiled_classifier = SimpleClassifier(class_definitions=CLASS_DEFINITIONS_STR) # Or class_definitions_str for the 37-class version
 
-    print("--- Testing Uncompiled Classifier (on one dev example) ---")
-    if dev_data:
+    # Test the uncompiled module on a dev example
+    print("--- Testing Uncompiled Classifier ---")
+    if dev_data: # Ensure dev_data exists
         example_dev_text = dev_data[0].text
+        true_class_example = dev_data[0].true_class
         prediction = uncompiled_classifier(example_dev_text)
         print(f"Input: {example_dev_text}")
-        print(f"True Class: {dev_data[0].true_class}")
+        print(f"True Class: {true_class_example}")
         print(f"Predicted class (uncompiled): {prediction.predicted_class}")
-
+        # Inspect the prompt sent by the uncompiled module
         if hasattr(turbo, 'inspect_history'):
-            turbo.inspect_history(n=0)
-            uncompiled_classifier(example_dev_text)
+            turbo.inspect_history(n=0) # Clear history
+            uncompiled_classifier(example_dev_text) # Make the call again
             if turbo.history:
                 print("\nPrompt sent by UNCOMPILED module for this example:")
                 print(turbo.history[0]['prompt'])
-            else:
-                print("No history found for uncompiled prompt inspection.")
         print("-----------------------------------\n")
     else:
-        print("No dev data to test uncompiled classifier.")
+        print("Skipping uncompiled classifier test as dev_data is empty.")
 
 
-    # Set up the optimizer
-    # With 37 classes, BootstrapFewShot might benefit from:
-    # - More `max_bootstrapped_demos` if your context window allows and you have enough diverse train data.
-    # - A larger `max_labeled_demos` pool to choose from.
+    # Set up the BootstrapFewShot optimizer
     optimizer = dspy.BootstrapFewShot(
-        metric=precision_accuracy_metric,
-        max_bootstrapped_demos=3,  # Try 2-5 demos; more might hit context limits with 37 classes
-        max_labeled_demos=16,      # Consider up to this many from training set (e.g., ~0.5 per class avg)
-                                  # Ensure this is not much larger than your trainset size.
-        # teacher_settings={'lm': turbo} # If teacher is different
+        metric=precision_accuracy_metric, # This metric function will use dev_data
+        max_bootstrapped_demos=3,
+        max_labeled_demos=16,
+        # teacher_settings={'lm': turbo} # If your teacher model is different
     )
 
-    print("--- Starting Compilation (Optimization) ---")
-    # Ensure trainset is not empty
+    print("--- Starting Compilation (Optimization with BootstrapFewShot) ---")
+    # Ensure train_data is not empty
     if not train_data:
         print("Error: Training data is empty. Cannot compile.")
         exit()
-    if not dev_data:
-        print("Error: Development data is empty. Cannot evaluate during compilation.")
-        exit()
+    # Note: The `dev_data` is passed to the metric function internally by the optimizer
+    # when it needs to evaluate a set of demonstrations.
+    # The metric function itself needs access to dev_data (e.g., via global scope or closure).
+    # In our current setup, `precision_accuracy_metric` uses `dev_data` which is in the global scope.
+    # DSPy's BootstrapFewShot will call metric(train_data_subset_as_demos, dev_data_predictions)
 
     compiled_classifier = optimizer.compile(
-        student=uncompiled_classifier,
-        trainset=train_data,
-        valset=dev_data
+        student=uncompiled_classifier, # The module we want to optimize
+        trainset=train_data
+        # NO valset argument here for BootstrapFewShot.compile()
     )
     print("--- Compilation Finished ---")
 
     # --- 8. Inspect the Optimized Prompt and Evaluate ---
-    print("\n--- Evaluating Compiled Classifier ---")
+    print("\n--- Evaluating Compiled Classifier (Optimized with BootstrapFewShot) ---")
     if dev_data:
+        # The evaluate method *does* take a valset (or any dataset to evaluate on)
         compiled_classifier.evaluate(dev_data, metric=precision_accuracy_metric, display_progress=True, display_table=0)
     else:
         print("No dev data to evaluate compiled classifier.")
 
+    # ... (rest of the inspection code for BootstrapFewShot: instructions, demos, final prompt example) ...
 
-    print("\n--- Optimized Prompt Components ---")
-    final_predictor = compiled_classifier.classifier
-    print("Optimized Instructions (defined in SimpleClassifier, includes class definitions):")
+    print("\n--- Optimized Prompt Components (from BootstrapFewShot) ---")
+    final_predictor = compiled_classifier.classifier # This is the dspy.Predict module
+    print("Optimized Instructions (remains the same as defined in SimpleClassifier):")
     print(final_predictor.signature.instructions)
 
     if final_predictor.demos:
-        print(f"\nOptimized Few-Shot Examples ({len(final_predictor.demos)} Demos):")
+        print(f"\nOptimized Few-Shot Examples ({len(final_predictor.demos)} Demos selected by BootstrapFewShot):")
         for i, demo in enumerate(final_predictor.demos):
             print(f"Demo {i+1}:")
             demo_dict = demo.toDict()
             print(f"  Input ('text'): {demo_dict.get('text', 'N/A')}")
             print(f"  Output ('predicted_class'): {demo_dict.get('predicted_class', 'N/A')}")
     else:
-        print("\nNo few-shot examples were selected/generated by the optimizer.")
+        print("\nNo few-shot examples were selected by the optimizer.")
 
     print("\n--- Final Prompt Example (for first dev data point if available) ---")
     if dev_data:
@@ -250,7 +253,7 @@ if __name__ == "__main__":
         true_label_example = dev_data[0].true_class
 
         if hasattr(turbo, 'inspect_history'):
-            turbo.inspect_history(n=0)
+            turbo.inspect_history(n=0) # Clear history
 
         prediction_compiled = compiled_classifier(example_input)
         print(f"Input: {example_input}")
@@ -263,18 +266,6 @@ if __name__ == "__main__":
             print(final_prompt_sent)
         else:
             print("\n(Could not inspect LM history for the final prompt automatically.)")
-
-        print("\n--- Conceptual assembly of the full prompt (for reference) ---")
-        # This is a manual reconstruction to show how DSPy builds it
-        conceptual_prompt = f"{final_predictor.signature.instructions}\n\n---\n\n"
-        for demo in final_predictor.demos:
-            demo_dict = demo.toDict()
-            conceptual_prompt += f"Text: {demo_dict.get('text', 'N/A')}\n" # Use your input field name
-            conceptual_prompt += f"Predicted Class: {demo_dict.get('predicted_class', 'N/A')}\n\n---\n\n" # Use your output field name
-        conceptual_prompt += f"Text: {example_input}\n" # Current input
-        conceptual_prompt += f"Predicted Class:" # LLM completes from here
-        print(conceptual_prompt)
-        print("------------------------------------------------------------------")
 
     else:
         print("No dev data to show final prompt example.")
